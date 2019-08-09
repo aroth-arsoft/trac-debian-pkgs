@@ -1,0 +1,3 @@
+[submodule "repo/trac-advancedworkflow"]
+	path = repo/trac-advancedworkflow
+	url = ../trac-advancedworkflow.git
