@@ -189,6 +189,15 @@ def copy_and_overwrite(from_path, to_path):
         print('Copy failed: %s' % e, file=sys.stderr)
     return ret
 
+def git_archive(repo_dir, tar_file, prefix):
+    f = open(tar_file, 'w')
+    gitproc = subprocess.Popen(['git', 'archive', '--format', 'tar', '--prefix=%s/' % prefix, 'HEAD'], stdout=subprocess.PIPE, cwd=repo_dir)
+    gzip_proc = subprocess.Popen(['gzip'],stdin=gitproc.stdout, stdout=f)
+    gitproc.stdout.close() # enable write error in gzip if git dies
+    out, err = gzip_proc.communicate()
+    f.close()
+
+
 class trac_package_update_app(object):
     def __init__(self):
         self._verbose = False
@@ -313,6 +322,9 @@ class trac_package_update_app(object):
                         else:
                             commit_msg = 'Automatic update'
 
+                        debian_package_name = None
+                        debian_package_version = None
+                        debian_package_orig_version = None
                         debian_package_update_ok = False
                         setup_py_version = None
                         setup_py = os.path.join(repo_dir, 'setup.py')
@@ -336,8 +348,10 @@ class trac_package_update_app(object):
                                 f = open(dch_filename, 'r')
                                 dch = debian.changelog.Changelog(f)
                                 f.close()
+                                debian_package_name = dch.package
                                 old_version = str(dch.version)
-                                new_version = setup_py_version + '+svn%i-' % rev
+                                debian_package_orig_version = setup_py_version + '+svn%i' % rev
+                                new_version = debian_package_orig_version + '-'
                                 if old_version.startswith(new_version):
                                     i = old_version.find('-')
                                     if i:
@@ -345,9 +359,10 @@ class trac_package_update_app(object):
                                 else:
                                     new_version = new_version + '1'
 
+                                debian_package_version = new_version
                                 dch.new_block(
-                                    package=dch.package,
-                                    version=new_version,
+                                    package=debian_package_name,
+                                    version=debian_package_version,
                                     distributions=self._distribution,
                                     urgency=dch.urgency,
                                     author="%s <%s>" % debian.changelog.get_maintainer(),
@@ -375,6 +390,10 @@ class trac_package_update_app(object):
                                 except FileNotFoundError as ex:
                                     print('Cannot execute git.', file=sys.stderr)
                                     sts = -1
+
+                                pkgfilename = debian_package_name + '-' + debian_package_orig_version
+                                pkgfile = os.path.join(repo_dir, '..', debian_package_name + '_' + debian_package_version + '.orig.tar.gz')
+                                git_archive(repo_dir, pkgfile, pkgfilename)
                     else:
                         print('Failed to copy to %s' % repo_dir, file=sys.stderr)
             else:
