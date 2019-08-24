@@ -6,6 +6,7 @@ import argparse
 import urllib.request
 import errno
 import shutil
+import re
 import os
 import os.path
 from zipfile import ZipFile
@@ -30,7 +31,7 @@ site_list = {
     },
 }
 
-
+re_setup_py_version = re.compile(r'version=[\'"]([a-zA-Z0-9\.]+)[\'"]')
 
 def get_html_title(url):
     def extract_html_title(data):
@@ -262,6 +263,7 @@ class trac_package_update_app(object):
                     f.close()
         return 0
 
+
     def _update_package_repo(self):
         mkdir_p(self._repo_dir)
         for name, details in package_list.items():
@@ -310,12 +312,69 @@ class trac_package_update_app(object):
                             commit_msg = 'Automatic update from %s revision %i' % (url, rev)
                         else:
                             commit_msg = 'Automatic update'
-                        if pkgrepo == 'git':
+
+                        debian_package_update_ok = False
+                        setup_py_version = None
+                        setup_py = os.path.join(repo_dir, 'setup.py')
+                        try:
+                            f = open(setup_py, 'r')
+                            for line in f:
+                                m = re_setup_py_version.search(line)
+                                if m:
+                                    setup_py_version = m.group(1)
+                                    break
+                            f.close()
+                        except IOError:
+                            pass
+
+                        if setup_py_version:
+                            dch_filename = os.path.join(repo_dir, 'debian/changelog')
+                            dch_version = None
                             try:
-                                (sts, stdoutdata, stderrdata) = runcmdAndGetData(args=['git', 'commit', '-am', commit_msg], cwd=repo_dir)
-                            except FileNotFoundError as ex:
-                                print('Cannot execute git.', file=sys.stderr)
-                                sts = -1
+                                import debian.changelog
+                                from textwrap import TextWrapper
+                                f = open(dch_filename, 'r')
+                                dch = debian.changelog.Changelog(f)
+                                f.close()
+                                old_version = str(dch.version)
+                                new_version = setup_py_version + '+svn%i-' % rev
+                                if old_version.startswith(new_version):
+                                    i = old_version.find('-')
+                                    if i:
+                                        new_version = new_version + '%i' % (int(old_version[i+1:]) + 1)
+                                else:
+                                    new_version = new_version + '1'
+
+                                dch.new_block(
+                                    package=dch.package,
+                                    version=new_version,
+                                    distributions=self._distribution,
+                                    urgency=dch.urgency,
+                                    author="%s <%s>" % debian.changelog.get_maintainer(),
+                                    date=debian.changelog.format_date()
+                                )
+                                wrapper = TextWrapper()
+                                wrapper.initial_indent    = "  * "
+                                wrapper.subsequent_indent = "    "
+                                dch.add_change('')
+                                for l in wrapper.wrap(commit_msg):
+                                    dch.add_change(l)
+                                dch.add_change('')
+                                f = open(dch_filename, 'w')
+                                f.write(str(dch))
+                                #print(dch)
+                                f.close()
+                                debian_package_update_ok = True
+                            except IOError:
+                                pass
+
+                        if debian_package_update_ok:
+                            if pkgrepo == 'git':
+                                try:
+                                    (sts, stdoutdata, stderrdata) = runcmdAndGetData(args=['git', 'commit', '-am', commit_msg], cwd=repo_dir)
+                                except FileNotFoundError as ex:
+                                    print('Cannot execute git.', file=sys.stderr)
+                                    sts = -1
                     else:
                         print('Failed to copy to %s' % repo_dir, file=sys.stderr)
             else:
@@ -338,6 +397,16 @@ class trac_package_update_app(object):
         base_dir = os.path.abspath(os.getcwd())
         self._download_dir = os.path.join(base_dir, 'download')
         self._repo_dir = os.path.join(base_dir, 'repo')
+
+        try:
+            import debian
+        except ImportError:
+            print('Debian python extension not available. Please install python3-debian.', file=sys.stderr)
+            return 2
+
+        lsb_release = IniFile('/etc/lsb-release')
+        self._distribution = lsb_release.get(None, 'DISTRIB_CODENAME', 'unstable')
+        lsb_release.close()
 
         self._get_latest_revisions()
         self._load_package_list()
