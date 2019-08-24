@@ -189,14 +189,25 @@ def copy_and_overwrite(from_path, to_path):
         print('Copy failed: %s' % e, file=sys.stderr)
     return ret
 
-def git_archive(repo_dir, tar_file, prefix):
+def git_archive_gz(repo_dir, tar_file, prefix):
     f = open(tar_file, 'w')
     gitproc = subprocess.Popen(['git', 'archive', '--format', 'tar', '--prefix=%s/' % prefix, 'HEAD'], stdout=subprocess.PIPE, cwd=repo_dir)
     gzip_proc = subprocess.Popen(['gzip'],stdin=gitproc.stdout, stdout=f)
     gitproc.stdout.close() # enable write error in gzip if git dies
-    out, err = gzip_proc.communicate()
+    stdoutdata, stderrdata = gzip_proc.communicate()
+    sts = gzip_proc.returncode
     f.close()
+    return True if sts == 0 else False
 
+def git_archive_xz(repo_dir, tar_file, prefix):
+    f = open(tar_file, 'w')
+    gitproc = subprocess.Popen(['git', 'archive', '--format', 'tar', '--prefix=%s/' % prefix, 'HEAD'], stdout=subprocess.PIPE, cwd=repo_dir)
+    gzip_proc = subprocess.Popen(['xz', '-c' ],stdin=gitproc.stdout, stdout=f)
+    gitproc.stdout.close() # enable write error in gzip if git dies
+    stdoutdata, stderrdata = gzip_proc.communicate()
+    sts = gzip_proc.returncode
+    f.close()
+    return True if sts == 0 else False
 
 class trac_package_update_app(object):
     def __init__(self):
@@ -391,9 +402,10 @@ class trac_package_update_app(object):
                                     print('Cannot execute git.', file=sys.stderr)
                                     sts = -1
 
-                                pkgfilename = debian_package_name + '-' + debian_package_orig_version
-                                pkgfile = os.path.join(repo_dir, '..', debian_package_name + '_' + debian_package_version + '.orig.tar.gz')
-                                git_archive(repo_dir, pkgfile, pkgfilename)
+                                prefix = debian_package_name + '-' + debian_package_orig_version
+                                pkgfile = os.path.join(repo_dir, '..', debian_package_name + '_' + debian_package_version + '.orig.tar.xz')
+                                if not git_archive_xz(repo_dir, pkgfile, prefix):
+                                    print('Failed to create %s.' % pkgfile, file=sys.stderr)
                     else:
                         print('Failed to copy to %s' % repo_dir, file=sys.stderr)
             else:
