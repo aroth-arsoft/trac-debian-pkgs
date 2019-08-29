@@ -10,10 +10,18 @@ import re
 import os
 import os.path
 from zipfile import ZipFile
+import tarfile
 from arsoft.utils import *
 from arsoft.inifile import IniFile
 
 package_list = {
+    'trac': {
+        'site': 'trac',
+        'version': '1.2.5',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'trac',
+    },
+
     'AdvancedTicketWorkflowPlugin':  {
         'site': 'trac-hacks',
         'repo': 'svn',
@@ -24,6 +32,10 @@ package_list = {
 }
 
 site_list = {
+    'trac': {
+        'archive': 'tar.gz',
+        'download': 'http://ftp.edgewall.com/pub/trac/Trac-${version}.tar.gz',
+    },
     'trac-hacks': {
         'svn': 'https://trac-hacks.org/svn',
         'download': 'https://trac-hacks.org/browser',
@@ -230,14 +242,19 @@ class trac_package_update_app(object):
             site = site_list.get(details.get('site', None), None)
             if site:
                 site_rev = site.get('revision', None)
-                url = site.get('download') + '/' + name.lower() + '/'
-                repo_subdir = details.get('repo_subdir', None)
-                if repo_subdir:
-                    url += repo_subdir + '/'
-                url += '?format=zip'
-                if site_rev is not None:
-                    url += '&rev=%s' % site_rev
-                package_list[name]['site_download_url'] = url
+                site_archive = site.get('archive', None)
+                if site_archive is None:
+                    url = site.get('download') + '/' + name.lower() + '/'
+                    repo_subdir = details.get('repo_subdir', None)
+                    if repo_subdir:
+                        url += repo_subdir + '/'
+                    url += '?format=zip'
+                    if site_rev is not None:
+                        url += '&rev=%s' % site_rev
+                    package_list[name]['site_download_url'] = url
+                else:
+                    url = site.get('download')
+                    package_list[name]['site_download_url'] = url
 
     def _list(self):
         for name, details in site_list.items():
@@ -255,11 +272,20 @@ class trac_package_update_app(object):
             site = site_list.get(details.get('site', None), None)
             if site:
                 url = details.get('site_download_url')
+                version = details.get('version', None)
+                if version is not None:
+                    url = url.replace('${version}', version)
                 site_rev = site.get('revision', None)
-                filename = name.lower()
-                if site_rev is not None:
-                    filename += '_rev%s' % site_rev
-                filename += '.zip'
+                site_archive = site.get('archive', None)
+                dest_format = 'zip'
+                if site_archive is None:
+                    filename = name.lower()
+                    if site_rev is not None:
+                        filename += '_rev%s' % site_rev
+                    filename += '.zip'
+                else:
+                    filename = name.lower() + '_%s.%s' % (version, site_archive)
+                    dest_format = site_archive
                 dest = os.path.join(self._download_dir, filename)
                 if os.path.isfile(dest):
                     os.unlink(dest)
@@ -273,12 +299,21 @@ class trac_package_update_app(object):
                 if download_ok:
                     pkg_download_dir = os.path.join(self._download_dir, name.lower())
                     pkg_download_tag_file = os.path.join(self._download_dir, '.' + name.lower() + '.tag')
-                    with ZipFile(dest, 'r') as zipObj:
-                        # Extract all the contents of zip file in different directory
-                        zipObj.extractall(pkg_download_dir)
+                    if dest_format == 'zip':
+                        with ZipFile(dest, 'r') as zipObj:
+                            # Extract all the contents of zip file in different directory
+                            zipObj.extractall(pkg_download_dir)
+                    elif dest_format.startswith('tar.'):
+                        with tarfile.open(dest, 'r') as tarObj:
+                            # Extract all the contents of tar file in different directory
+                            tarObj.extractall(pkg_download_dir)
+
                     f = IniFile(pkg_download_tag_file)
                     f.set(None, 'url', url)
-                    f.set(None, 'rev', site_rev)
+                    if site_rev is not None:
+                        f.set(None, 'rev', site_rev)
+                    if site_archive is not None:
+                        f.set(None, 'archive', site_archive)
                     f.save(pkg_download_tag_file)
                     f.close()
         return 0
@@ -319,9 +354,11 @@ class trac_package_update_app(object):
                 pkg_download_tag_file = os.path.join(self._download_dir, '.' + name.lower() + '.tag')
                 rev = None
                 url = None
+                archive = None
                 if os.path.isfile(pkg_download_tag_file):
                     f = IniFile(pkg_download_tag_file)
                     rev = f.getAsInteger(None, 'rev', None)
+                    archive = f.get(None, 'archive', None)
                     url = f.get(None, 'url', None)
                     f.close()
                 pkg_download_dir = os.path.join(self._download_dir, name.lower(), repo_subdir)
