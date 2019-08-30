@@ -350,7 +350,7 @@ class trac_package_update_app(object):
 
             if repo_ok:
                 print('Repository %s ok' % repo_dir)
-                repo_subdir = details.get('repo_subdir', '')
+                download_subdir = details.get('repo_subdir', None)
                 pkg_download_tag_file = os.path.join(self._download_dir, '.' + name.lower() + '.tag')
                 rev = None
                 url = None
@@ -361,7 +361,17 @@ class trac_package_update_app(object):
                     archive = f.get(None, 'archive', None)
                     url = f.get(None, 'url', None)
                     f.close()
-                pkg_download_dir = os.path.join(self._download_dir, name.lower(), repo_subdir)
+                if archive is not None:
+                    download_subdir = os.path.basename(url)
+                    i = download_subdir.find(archive)
+                    if i >= 0:
+                        download_subdir = download_subdir[0:i]
+                        if download_subdir[-1] == '.':
+                            download_subdir = download_subdir[0:-1]
+
+                if self._verbose:
+                    print(self._download_dir, name.lower(), '' if download_subdir is None else download_subdir)
+                pkg_download_dir = os.path.join(self._download_dir, name.lower(), '' if download_subdir is None else download_subdir)
                 if os.path.isdir(pkg_download_dir):
                     print('Update %s from %s' % (name.lower(), pkg_download_dir))
                     if copy_and_overwrite(pkg_download_dir, repo_dir):
