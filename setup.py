@@ -20,6 +20,7 @@ package_list = {
         'version': '1.2.5',
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac',
+        'delete-files': ['trac/htdocs/js/jquery-ui-addons.js', 'trac/htdocs/js/jquery-ui.js', 'trac/htdocs/js/jquery.js', 'trac/htdocs/js/excanvas.js']
     },
 
     'AdvancedTicketWorkflowPlugin':  {
@@ -43,7 +44,7 @@ site_list = {
     },
 }
 
-re_setup_py_version = re.compile(r'version=[\'"]([a-zA-Z0-9\.]+)[\'"]')
+re_setup_py_version = re.compile(r'version\s*=\s*[\'"]([a-zA-Z0-9\.]+)[\'"]')
 
 def get_html_title(url):
     def extract_html_title(data):
@@ -239,6 +240,8 @@ class trac_package_update_app(object):
 
     def _load_package_list(self):
         for name, details in package_list.items():
+            if name not in self._packages:
+                continue
             site = site_list.get(details.get('site', None), None)
             if site:
                 site_rev = site.get('revision', None)
@@ -268,6 +271,8 @@ class trac_package_update_app(object):
     def _download_pkgs(self):
         mkdir_p(self._download_dir)
         for name, details in package_list.items():
+            if name not in self._packages:
+                continue
             print('%s' % name)
             site = site_list.get(details.get('site', None), None)
             if site:
@@ -322,6 +327,8 @@ class trac_package_update_app(object):
     def _update_package_repo(self):
         mkdir_p(self._repo_dir)
         for name, details in package_list.items():
+            if name not in self._packages:
+                continue
             pkgrepo = details.get('pkgrepo', '')
             repo_ok = False
             if pkgrepo == 'git':
@@ -375,6 +382,17 @@ class trac_package_update_app(object):
                 if os.path.isdir(pkg_download_dir):
                     print('Update %s from %s' % (name.lower(), pkg_download_dir))
                     if copy_and_overwrite(pkg_download_dir, repo_dir):
+
+                        delete_files = details.get('delete-files', [])
+                        if delete_files:
+                            for f in delete_files:
+                                full = os.path.join(repo_dir, f)
+                                if os.path.exists(full):
+                                    try:
+                                        os.unlink(full)
+                                    except IOError as e:
+                                        print('Unable to delete %s: %s' % (full, e), file=sys.stderr)
+
                         if rev and url:
                             commit_msg = 'Automatic update from %s revision %i' % (url, rev)
                         else:
@@ -394,7 +412,8 @@ class trac_package_update_app(object):
                                     setup_py_version = m.group(1)
                                     break
                             f.close()
-                        except IOError:
+                        except IOError as e:
+                            print('Unable to open %s: %s' % (setup_py, e), file=sys.stderr)
                             pass
 
                         if setup_py_version:
@@ -408,7 +427,13 @@ class trac_package_update_app(object):
                                 f.close()
                                 debian_package_name = dch.package
                                 old_version = str(dch.version)
-                                debian_package_orig_version = setup_py_version + '+svn%i' % rev
+                                is_dfsg = old_version.find('dfsg') != -1
+                                if rev:
+                                    debian_package_orig_version = setup_py_version + '+svn%i' % rev
+                                elif is_dfsg:
+                                    debian_package_orig_version = setup_py_version + '+dfsg'
+                                else:
+                                    debian_package_orig_version = setup_py_version
                                 new_version = debian_package_orig_version + '-'
                                 if old_version.startswith(new_version):
                                     i = old_version.find('-')
@@ -438,8 +463,11 @@ class trac_package_update_app(object):
                                 #print(dch)
                                 f.close()
                                 debian_package_update_ok = True
-                            except IOError:
+                            except IOError as e:
+                                print('Unable to open %s: %s' % (dch_filename, e), file=sys.stderr)
                                 pass
+                        elif self._verbose:
+                            print('Failed to get version from %s.' % setup_py, file=sys.stderr)
 
                         if debian_package_update_ok:
                             if pkgrepo == 'git':
@@ -453,6 +481,8 @@ class trac_package_update_app(object):
                                 pkgfile = os.path.join(repo_dir, '..', debian_package_name + '_' + debian_package_version + '.orig.tar.xz')
                                 if not git_archive_xz(repo_dir, pkgfile, prefix):
                                     print('Failed to create %s.' % pkgfile, file=sys.stderr)
+                        elif self._verbose:
+                            print('Debian package update failed.', file=sys.stderr)
                     else:
                         print('Failed to copy to %s' % repo_dir, file=sys.stderr)
             else:
@@ -468,6 +498,7 @@ class trac_package_update_app(object):
         parser.add_argument('-l', '--list', dest='list', action='store_true', help='show list of all packages.')
         parser.add_argument('-d', '--download', dest='download', action='store_true', help='download the latest version of all packages.')
         parser.add_argument('-u', '--update', dest='update', action='store_true', help='update the package repositories.')
+        parser.add_argument('-p', '--package', dest='packages', nargs='*', help='select packages to process (default all)')
 
         args = parser.parse_args()
         self._verbose = args.verbose
@@ -475,6 +506,10 @@ class trac_package_update_app(object):
         base_dir = os.path.abspath(os.getcwd())
         self._download_dir = os.path.join(base_dir, 'download')
         self._repo_dir = os.path.join(base_dir, 'repo')
+        if args.packages:
+            self._packages = args.packages
+        else:
+            self._packages = package_list.keys()
 
         try:
             import debian
