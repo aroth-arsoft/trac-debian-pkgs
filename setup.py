@@ -20,6 +20,9 @@ package_list = {
         'version': '1.2.5',
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac',
+        'debian-revision': 'minor',
+        'orig-archive-format': 'tar.gz',
+        'orig-archive-source': 'directory',
         'delete-files': ['trac/htdocs/js/jquery-ui-addons.js', 'trac/htdocs/js/jquery-ui.js', 'trac/htdocs/js/jquery.js', 'trac/htdocs/js/excanvas.js']
     },
 
@@ -222,6 +225,23 @@ def git_archive_xz(repo_dir, tar_file, prefix):
     f.close()
     return True if sts == 0 else False
 
+def make_tarfile(repo_dir, tar_file, prefix, format='xz'):
+    with tarfile.open(tar_file, "w:%s" % format) as tar:
+        tar.add(repo_dir, arcname=prefix)
+
+def increment_debian_revision(rev, strategy):
+    e = rev.split('.')
+    if strategy == 'minor':
+        if len(e) < 2:
+            e.append('0')
+    try:
+        num = int(e[-1]) + 1
+    except ValueError:
+        num = 0 if strategy != 'minor' else 1
+    e[-1] = str(num)
+    return '.'.join(e)
+
+
 class trac_package_update_app(object):
     def __init__(self):
         self._verbose = False
@@ -393,15 +413,11 @@ class trac_package_update_app(object):
                                     except IOError as e:
                                         print('Unable to delete %s: %s' % (full, e), file=sys.stderr)
 
-                        if rev and url:
-                            commit_msg = 'Automatic update from %s revision %i' % (url, rev)
-                        else:
-                            commit_msg = 'Automatic update'
-
                         debian_package_name = None
                         debian_package_version = None
                         debian_package_orig_version = None
                         debian_package_update_ok = False
+                        debian_revision = None
                         setup_py_version = None
                         setup_py = os.path.join(repo_dir, 'setup.py')
                         try:
@@ -417,6 +433,12 @@ class trac_package_update_app(object):
                             pass
 
                         if setup_py_version:
+
+                            if rev and url:
+                                commit_msg = 'Automatic update %s from %s revision %i' % (setup_py_version, url, rev)
+                            else:
+                                commit_msg = 'Automatic update %s' % setup_py_version
+
                             dch_filename = os.path.join(repo_dir, 'debian/changelog')
                             dch_version = None
                             try:
@@ -438,9 +460,12 @@ class trac_package_update_app(object):
                                 if old_version.startswith(new_version):
                                     i = old_version.find('-')
                                     if i:
-                                        new_version = new_version + '%i' % (int(old_version[i+1:]) + 1)
+                                        debian_revision = old_version[i+1:] if i else 0
                                 else:
-                                    new_version = new_version + '1'
+                                    debian_revision = '0'
+
+                                debian_revision = increment_debian_revision(debian_revision, strategy=details.get('debian-revision', 'major'))
+                                new_version = new_version + debian_revision
 
                                 debian_package_version = new_version
                                 dch.new_block(
@@ -470,6 +495,7 @@ class trac_package_update_app(object):
                             print('Failed to get version from %s.' % setup_py, file=sys.stderr)
 
                         if debian_package_update_ok:
+
                             if pkgrepo == 'git':
                                 try:
                                     (sts, stdoutdata, stderrdata) = runcmdAndGetData(args=['git', 'commit', '-am', commit_msg], cwd=repo_dir)
@@ -477,10 +503,30 @@ class trac_package_update_app(object):
                                     print('Cannot execute git.', file=sys.stderr)
                                     sts = -1
 
+                                orig_archive_format = details.get('orig-archive-format', 'tar.xz')
+                                orig_archive_source = details.get('orig-archive-source', 'git')
+
                                 prefix = debian_package_name + '-' + debian_package_orig_version
-                                pkgfile = os.path.join(repo_dir, '..', debian_package_name + '_' + debian_package_version + '.orig.tar.xz')
-                                if not git_archive_xz(repo_dir, pkgfile, prefix):
-                                    print('Failed to create %s.' % pkgfile, file=sys.stderr)
+                                pkgfile = os.path.join(repo_dir, '..', debian_package_name + '_' + debian_package_orig_version + '.orig.' + orig_archive_format)
+                                if orig_archive_source == 'git':
+                                    if orig_archive_format == 'tar.xz':
+                                        if not git_archive_xz(repo_dir, pkgfile, prefix):
+                                            print('Failed to create %s.' % pkgfile, file=sys.stderr)
+                                    elif orig_archive_format == 'tar.gz':
+                                        if not git_archive_gz(repo_dir, pkgfile, prefix):
+                                            print('Failed to create %s.' % pkgfile, file=sys.stderr)
+                                    else:
+                                        print('Invalid package orig archive format \'%s\' specified.' % orig_archive_format, file=sys.stderr)
+                                elif orig_archive_source == 'directory':
+                                    i = orig_archive_format.find('.')
+                                    if i > 0:
+                                        format = orig_archive_format[i+1:]
+                                    else:
+                                        format = 'xz'
+                                    make_tarfile(repo_dir, pkgfile, prefix, format=format)
+
+                                else:
+                                    print('Invalid package orig archive source \'%s\' specified.' % orig_archive_source, file=sys.stderr)
                         elif self._verbose:
                             print('Debian package update failed.', file=sys.stderr)
                     else:
