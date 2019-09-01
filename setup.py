@@ -225,7 +225,30 @@ def git_archive_xz(repo_dir, tar_file, prefix):
     f.close()
     return True if sts == 0 else False
 
-def make_tarfile(repo_dir, tar_file, prefix, format='xz'):
+def extract_archive(archive, dest_dir):
+    ret = False
+    b = os.path.basename(archive)
+    b, last_ext = os.path.splitext(b)
+    if last_ext == '.zip':
+        with ZipFile(archive, 'r') as zipObj:
+            # Extract all the contents of zip file in different directory
+            zipObj.extractall(dest_dir)
+        ret = True
+    elif last_ext == '.gz' or last_ext == '.bz2' or last_ext == '.xz':
+        b, second_ext = os.path.splitext(b)
+        if second_ext == '.tar':
+            with tarfile.open(archive, 'r') as tarObj:
+                # Extract all the contents of tar file in different directory
+                tarObj.extractall(dest_dir)
+            ret = True
+    #print('extract_archive ret->%s %i' % (archive, ret))
+    return ret
+
+def make_tarfile(repo_dir, tar_file, prefix, format=None):
+    if format is None:
+        b = os.path.basename(tar_file)
+        b, last_ext = os.path.splitext(b)
+        format = last_ext[1:]
     with tarfile.open(tar_file, "w:%s" % format) as tar:
         tar.add(repo_dir, arcname=prefix)
 
@@ -297,6 +320,7 @@ class trac_package_update_app(object):
             site = site_list.get(details.get('site', None), None)
             if site:
                 url = details.get('site_download_url')
+                delete_files = details.get('delete-files', [])
                 version = details.get('version', None)
                 if version is not None:
                     url = url.replace('${version}', version)
@@ -321,17 +345,39 @@ class trac_package_update_app(object):
                     download_ok = True
                 except urllib.error.HTTPError as ex:
                     print('HTTP error %s for %s' % (ex, url))
+
+                if download_ok and site_archive and delete_files:
+                    download_subdir = os.path.basename(url)
+                    i = download_subdir.find(site_archive)
+                    if i >= 0:
+                        download_subdir = download_subdir[0:i]
+                        if download_subdir[-1] == '.':
+                            download_subdir = download_subdir[0:-1]
+
+                    download_ok = False
+                    pkg_download_tmp_dir = os.path.join(self._download_dir, name.lower() + '.tmp')
+                    if self._verbose:
+                        print('Extract to %s' % pkg_download_tmp_dir)
+                    # extract to temp directory, delete the files and re-package
+                    if extract_archive(dest, pkg_download_tmp_dir):
+                        prefix = download_subdir
+                        base_dir = os.path.join(pkg_download_tmp_dir, download_subdir)
+                        for f in delete_files:
+                            full = os.path.join(base_dir, f)
+                            if os.path.exists(full):
+                                try:
+                                    os.unlink(full)
+                                except IOError as e:
+                                    print('Unable to delete %s: %s' % (full, e), file=sys.stderr)
+                        download_ok = make_tarfile(base_dir, dest, prefix=prefix)
+
                 if download_ok:
                     pkg_download_dir = os.path.join(self._download_dir, name.lower())
                     pkg_download_tag_file = os.path.join(self._download_dir, '.' + name.lower() + '.tag')
-                    if dest_format == 'zip':
-                        with ZipFile(dest, 'r') as zipObj:
-                            # Extract all the contents of zip file in different directory
-                            zipObj.extractall(pkg_download_dir)
-                    elif dest_format.startswith('tar.'):
-                        with tarfile.open(dest, 'r') as tarObj:
-                            # Extract all the contents of tar file in different directory
-                            tarObj.extractall(pkg_download_dir)
+
+                    # Extract all the contents of zip file in different directory
+                    if not extract_archive(dest, pkg_download_dir):
+                        print('Failed to extract %s to %s' % (dest, pkg_download_dir), file=sys.stderr)
 
                     f = IniFile(pkg_download_tag_file)
                     f.set(None, 'url', url)
