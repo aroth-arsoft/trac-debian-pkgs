@@ -214,8 +214,8 @@ def remove_obsolete_files(src, dst, ignore=None):
             if os.path.isdir(dstname):
                 remove_obsolete_files(srcname, dstname, ignore)
             if not os.path.exists(srcname):
+                print('remove %s' %dstname)
                 if os.path.isfile(dstname):
-                    print('remove %s' %dstname)
                     os.unlink(dstname)
                 else:
                     rmdir_p(dstname)
@@ -282,12 +282,15 @@ def extract_archive(archive, dest_dir):
     return ret
 
 def make_tarfile(repo_dir, tar_file, prefix, format=None):
+    ret = False
     if format is None:
         b = os.path.basename(tar_file)
         b, last_ext = os.path.splitext(b)
         format = last_ext[1:]
     with tarfile.open(tar_file, "w:%s" % format) as tar:
         tar.add(repo_dir, arcname=prefix)
+        ret = True
+    return ret
 
 def increment_debian_revision(rev, strategy):
     e = rev.split('.')
@@ -407,6 +410,8 @@ class trac_package_update_app(object):
                                 except IOError as e:
                                     print('Unable to delete %s: %s' % (full, e), file=sys.stderr)
                         download_ok = make_tarfile(base_dir, dest, prefix=prefix)
+                        if not download_ok:
+                            print('Failed to create tar archive %s from %s' % (dest, base_dir), file=sys.stderr)
 
                 if download_ok:
                     pkg_download_dir = os.path.join(self._download_dir, name.lower())
@@ -417,13 +422,16 @@ class trac_package_update_app(object):
                         print('Failed to extract %s to %s' % (dest, pkg_download_dir), file=sys.stderr)
 
                     f = IniFile(pkg_download_tag_file)
-                    f.set(None, 'url', url)
+                    if url is not None:
+                        f.set(None, 'url', url)
                     if site_rev is not None:
                         f.set(None, 'rev', site_rev)
                     if site_archive is not None:
                         f.set(None, 'archive', site_archive)
                     f.save(pkg_download_tag_file)
                     f.close()
+                else:
+                    print('Download failed %s' % (name), file=sys.stderr)
         return 0
 
 
@@ -484,6 +492,7 @@ class trac_package_update_app(object):
                 pkg_download_dir = os.path.join(self._download_dir, name.lower(), '' if download_subdir is None else download_subdir)
                 if os.path.isdir(pkg_download_dir):
                     print('Update %s from %s' % (name.lower(), pkg_download_dir))
+
                     if copy_and_overwrite(pkg_download_dir, repo_dir):
 
                         delete_files = details.get('delete-files', [])
@@ -498,6 +507,8 @@ class trac_package_update_app(object):
 
                         pc_dir = os.path.join(repo_dir, '.pc')
                         if os.path.isdir(pc_dir):
+                            if self._verbose:
+                                print('Delete directory %s' % (pc_dir))
                             rmdir_p(pc_dir)
 
                         debian_package_name = None
@@ -578,7 +589,7 @@ class trac_package_update_app(object):
                             except IOError as e:
                                 print('Unable to open %s: %s' % (dch_filename, e), file=sys.stderr)
                                 pass
-                        elif self._verbose:
+                        else:
                             print('Failed to get version from %s.' % setup_py, file=sys.stderr)
 
                         if debian_package_update_ok:
