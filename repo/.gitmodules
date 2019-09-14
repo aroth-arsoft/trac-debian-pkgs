@@ -1,3 +1,6 @@
 [submodule "trac-advancedworkflow"]
 	path = trac-advancedworkflow
 	url = ../trac-advancedworkflow.git
+[submodule "trac"]
+	path = trac
+	url = ../pkg-trac.git

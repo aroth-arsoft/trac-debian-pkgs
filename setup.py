@@ -96,6 +96,9 @@ def mkdir_p(path):
         else:
             raise
 
+def rmdir_p(path):
+    return shutil.rmtree(path, ignore_errors=False, onerror=None)
+
 def copytree(src, dst, symlinks=False, ignore=None, copy_function=shutil.copy2,
              ignore_dangling_symlinks=False, ignore_existing_dst=False):
     """Recursively copy a directory tree.
@@ -194,6 +197,38 @@ def copytree(src, dst, symlinks=False, ignore=None, copy_function=shutil.copy2,
         raise shutil.Error(errors)
     return dst
 
+def remove_obsolete_files(src, dst, ignore=None):
+    names = os.listdir(dst)
+    if ignore is not None:
+        ignored_names = ignore(dst, names)
+    else:
+        ignored_names = set()
+
+    errors = []
+    for name in names:
+        if name in ignored_names:
+            continue
+        srcname = os.path.join(src, name)
+        dstname = os.path.join(dst, name)
+        try:
+            if os.path.isdir(dstname):
+                remove_obsolete_files(srcname, dstname, ignore)
+            if not os.path.exists(srcname):
+                if os.path.isfile(dstname):
+                    print('remove %s' %dstname)
+                    os.unlink(dstname)
+                else:
+                    rmdir_p(dstname)
+        # catch the Error from the recursive copytree so that we can
+        # continue with other files
+        except shutil.Error as err:
+            errors.extend(err.args[0])
+        except OSError as why:
+            errors.append((srcname, dstname, str(why)))
+    if errors:
+        raise shutil.Error(errors)
+    return dst
+
 def copy_and_overwrite(from_path, to_path):
     def _copy_and_overwrite(src, dst):
         shutil.copy2(src, dst)
@@ -203,6 +238,8 @@ def copy_and_overwrite(from_path, to_path):
         ret = True
     except shutil.Error as e:
         print('Copy failed: %s' % e, file=sys.stderr)
+
+    remove_obsolete_files(from_path, to_path, ignore=shutil.ignore_patterns('debian', '.pc', '.git*'))
     return ret
 
 def git_archive_gz(repo_dir, tar_file, prefix):
@@ -458,6 +495,10 @@ class trac_package_update_app(object):
                                         os.unlink(full)
                                     except IOError as e:
                                         print('Unable to delete %s: %s' % (full, e), file=sys.stderr)
+
+                        pc_dir = os.path.join(repo_dir, '.pc')
+                        if os.path.isdir(pc_dir):
+                            rmdir_p(pc_dir)
 
                         debian_package_name = None
                         debian_package_version = None
