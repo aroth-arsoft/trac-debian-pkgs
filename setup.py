@@ -27,6 +27,7 @@ package_list = {
     },
 
     'AdvancedTicketWorkflowPlugin':  {
+        'alias': 'advancedworkflow',
         'site': 'trac-hacks',
         'repo': 'svn',
         'repo_subdir': '1.2',
@@ -34,55 +35,76 @@ package_list = {
         'pkgrepo_dir': 'trac-advancedworkflow',
     },
     'trac-crashdump': {
+        'alias': 'crashdump',
         'site': 'github-aroth-arsoft',
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac-crashdump',
     },
     'AnnouncerPlugin':  {
+        'alias': 'announcer',
         'site': 'trac-hacks',
         'repo': 'svn',
+        'repo_subdir': 'trunk',
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac-announcer',
     },
+    # graphix plugin is no longer requried for workflowadmin plugin
     'GraphvizPlugin':  {
+        'disable': True,
+        'alias': 'graphviz',
         'site': 'trac-hacks',
         'repo': 'svn',
+        'repo_subdir': 'trunk',
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac-graphviz',
     },
     'HudsonTracPlugin':  {
+        'alias': 'hudson',
         'site': 'trac-hacks',
         'repo': 'svn',
+        'repo_subdir': '1.2',
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac-hudson',
+        'orig-archive-source': 'directory',
     },
     'IniAdminPlugin':  {
+        'alias': 'iniadmin',
         'site': 'trac-hacks',
         'repo': 'svn',
+        'repo_subdir': '0.11',
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac-iniadmin',
+        'orig-archive-source': 'directory',
     },
     'MasterTicketsPlugin':  {
+        'alias': 'mastertickets',
         'site': 'trac-hacks',
         'repo': 'svn',
+        'repo_subdir': 'trunk',
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac-mastertickets',
     },
     'NavAddPlugin': {
+        'alias': 'navadd',
         'site': 'trac-hacks',
         'repo': 'svn',
+        'repo_subdir': 'trunk',
         'trac_max_version': '1.3.2',
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac-navadd',
     },
     'TimingAndEstimationPlugin': {
+        'alias': 'timingandestimation',
         'site': 'trac-hacks',
         'repo': 'svn',
+        'repo_subdir': 'branches/trac1.0',
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac-timingandestimation',
     },
     'TracWorkflowAdminPlugin': {
+        'alias': 'workflowadmin',
         'site': 'trac-hacks',
+        'repo_subdir': '0.12',
         'repo': 'svn',
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac-workflowadmin',
@@ -430,6 +452,8 @@ class trac_package_update_app(object):
                 print('  Git: %s' % site_git)
 
         for name, details in package_list.items():
+            if details.get('disable', False):
+                continue
             url = details.get('site_download_url')
             version = details.get('version', None)
             if version is not None:
@@ -439,9 +463,12 @@ class trac_package_update_app(object):
         return 0
 
     def _download_pkgs(self):
+        ret = True
         mkdir_p(self._download_dir)
         for name, details in package_list.items():
             if name not in self._packages:
+                continue
+            if details.get('disable', False):
                 continue
             print('%s' % name)
             site = site_list.get(details.get('site', None), None)
@@ -521,6 +548,7 @@ class trac_package_update_app(object):
                     # Extract all the contents of zip file in different directory
                     if not extract_archive(dest, pkg_download_dir):
                         print('Failed to extract %s to %s' % (dest, pkg_download_dir), file=sys.stderr)
+                        ret = False
 
                     f = IniFile(pkg_download_tag_file)
                     if url is not None:
@@ -533,13 +561,16 @@ class trac_package_update_app(object):
                     f.close()
                 else:
                     print('Download failed %s' % (name), file=sys.stderr)
-        return 0
-
+                    ret = False
+        return ret
 
     def _update_package_repo(self):
+        ret = True
         mkdir_p(self._repo_dir)
         for name, details in package_list.items():
             if name not in self._packages:
+                continue
+            if details.get('disable', False):
                 continue
             pkgrepo = details.get('pkgrepo', '')
             repo_ok = False
@@ -692,6 +723,7 @@ class trac_package_update_app(object):
                                 pass
                         else:
                             print('Failed to get version from %s.' % setup_py, file=sys.stderr)
+                            ret = False
 
                         if debian_package_update_ok:
 
@@ -700,6 +732,7 @@ class trac_package_update_app(object):
                                     (sts, stdoutdata, stderrdata) = runcmdAndGetData(args=['git', 'commit', '-am', commit_msg], cwd=repo_dir)
                                 except FileNotFoundError as ex:
                                     print('Cannot execute git.', file=sys.stderr)
+                                    ret = False
                                     sts = -1
 
                                 orig_archive_format = details.get('orig-archive-format', 'tar.xz')
@@ -711,11 +744,14 @@ class trac_package_update_app(object):
                                     if orig_archive_format == 'tar.xz':
                                         if not git_archive_xz(repo_dir, pkgfile, prefix):
                                             print('Failed to create %s.' % pkgfile, file=sys.stderr)
+                                            ret = False
                                     elif orig_archive_format == 'tar.gz':
                                         if not git_archive_gz(repo_dir, pkgfile, prefix):
                                             print('Failed to create %s.' % pkgfile, file=sys.stderr)
+                                            ret = False
                                     else:
                                         print('Invalid package orig archive format \'%s\' specified.' % orig_archive_format, file=sys.stderr)
+                                        ret = False
                                 elif orig_archive_source == 'directory':
                                     i = orig_archive_format.find('.')
                                     if i > 0:
@@ -726,13 +762,49 @@ class trac_package_update_app(object):
 
                                 else:
                                     print('Invalid package orig archive source \'%s\' specified.' % orig_archive_source, file=sys.stderr)
-                        elif self._verbose:
-                            print('Debian package update failed.', file=sys.stderr)
+                                    ret = False
+                        else:
+                            if self._verbose:
+                                print('Debian package update failed.', file=sys.stderr)
+                            ret = False
                     else:
                         print('Failed to copy to %s' % repo_dir, file=sys.stderr)
+                        ret = False
             else:
                 print('Repository %s failed' % repo_dir, file=sys.stderr)
+                ret = False
+        return ret
 
+    def _ppa_publish(self):
+        ret = True
+        for name, details in package_list.items():
+            if name not in self._packages:
+                continue
+            if details.get('disable', False):
+                continue
+
+            pkgrepo = details.get('pkgrepo', '')
+            repo_ok = False
+            if pkgrepo == 'git':
+                pkgrepo_dir = details.get('pkgrepo_dir', None)
+                if pkgrepo_dir:
+                    repo_dir = os.path.join(self._repo_dir, pkgrepo_dir)
+                    repo_ok = os.path.isdir(repo_dir)
+                else:
+                    pkgrepo_url = details.get('pkgrepo_url', None)
+                    repo_dir = os.path.join(self._repo_dir, name.lower())
+                    repo_ok = os.path.isdir(repo_dir)
+            if repo_ok:
+                print('Publish package on PPA from %s' % repo_dir)
+                try:
+                    (sts, stdoutdata, stderrdata) = runcmdAndGetData(args=['ppa_publish'], stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr, cwd=repo_dir)
+                    if sts != 0:
+                        print('ppa_publish failed:\n%s' % stderrdata, file=sys.stderr)
+                except FileNotFoundError as ex:
+                    print('Cannot execute ppa_publish.', file=sys.stderr)
+                    ret = False
+
+        return ret
 
     def main(self):
         #=============================================================================================
@@ -742,19 +814,37 @@ class trac_package_update_app(object):
         parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', help='enable verbose output of this script.')
         parser.add_argument('-f', '--force', dest='force', action='store_true', help='force re-download of packages.')
         parser.add_argument('-l', '--list', dest='list', action='store_true', help='show list of all packages.')
-        parser.add_argument('-d', '--download', dest='download', action='store_true', help='download the latest version of all packages.')
+        parser.add_argument('-np', '--no-publish', dest='no_publish', action='store_true', help='do not publish packages.')
         parser.add_argument('-u', '--update', dest='update', action='store_true', help='update the package repositories.')
         parser.add_argument('-p', '--package', dest='packages', nargs='*', help='select packages to process (default all)')
 
         args = parser.parse_args()
         self._verbose = args.verbose
         self._force = args.force
+        self._no_publish = args.no_publish
 
         base_dir = os.path.abspath(os.getcwd())
         self._download_dir = os.path.join(base_dir, 'download')
         self._repo_dir = os.path.join(base_dir, 'repo')
         if args.packages:
-            self._packages = args.packages
+            self._packages = []
+            available_packages = {}
+            for name, details in package_list.items():
+                available_packages[name.lower()] = name
+                alias = details.get('alias', None)
+                if alias is not None:
+                    available_packages[alias.lower()] = name
+            got_unknown_package = False
+            for p in args.packages:
+                pkg_name = p.lower()
+                if pkg_name in available_packages:
+                    real_name = available_packages[pkg_name]
+                    self._packages.append(real_name)
+                else:
+                    got_unknown_package = True
+                    print('Unknown package %s specified.' % p, file=sys.stderr)
+            if got_unknown_package:
+                return 1
         else:
             self._packages = package_list.keys()
 
@@ -773,10 +863,20 @@ class trac_package_update_app(object):
 
         if args.list:
             ret = self._list()
-        elif args.download:
-            ret = self._download_pkgs()
         elif args.update:
-            ret = self._update_package_repo()
+            if self._download_pkgs():
+                if self._update_package_repo():
+                    if self._no_publish:
+                        ret = 0
+                    else:
+                        if self._ppa_publish():
+                            ret = 0
+                        else:
+                            ret = 5
+                else:
+                    ret = 4
+            else:
+                ret = 3
         else:
             ret = 0
 
