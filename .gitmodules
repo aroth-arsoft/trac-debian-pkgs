@@ -4,3 +4,30 @@
 [submodule "repo/trac-advancedworkflow"]
 	path = repo/trac-advancedworkflow
 	url = ../trac-advancedworkflow.git
+[submodule "repo/trac-crashdump"]
+	path = repo/trac-crashdump
+	url = ../trac-crashdump.git
+[submodule "repo/trac-workflowadmin"]
+	path = repo/trac-workflowadmin
+	url = ../trac-workflowadmin.git
+[submodule "repo/trac-announcer"]
+	path = repo/trac-announcer
+	url = ../trac-announcer.git
+[submodule "repo/trac-hudson"]
+	path = repo/trac-hudson
+	url = ../trac-hudson.git
+[submodule "repo/trac-iniadmin"]
+	path = repo/trac-iniadmin
+	url = ../trac-iniadmin.git
+[submodule "repo/trac-navadd"]
+	path = repo/trac-navadd
+	url = ../trac-navadd.git
+[submodule "repo/trac-mastertickets"]
+	path = repo/trac-mastertickets
+	url = ../trac-mastertickets.git
+[submodule "repo/trac-timingandestimation"]
+	path = repo/trac-timingandestimation
+	url = ../trac-timingandestimation.git
+[submodule "repo/trac-graphviz"]
+	path = repo/trac-graphviz
+	url = ../trac-graphviz.git

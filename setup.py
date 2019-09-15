@@ -9,7 +9,7 @@ import shutil
 import re
 import os
 import os.path
-from zipfile import ZipFile
+from zipfile import ZipFile, BadZipFile
 import tarfile
 from arsoft.utils import *
 from arsoft.inifile import IniFile
@@ -33,6 +33,62 @@ package_list = {
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac-advancedworkflow',
     },
+    'trac-crashdump': {
+        'site': 'github-aroth-arsoft',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'trac-crashdump',
+    },
+    'AnnouncerPlugin':  {
+        'site': 'trac-hacks',
+        'repo': 'svn',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'trac-announcer',
+    },
+    'GraphvizPlugin':  {
+        'site': 'trac-hacks',
+        'repo': 'svn',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'trac-graphviz',
+    },
+    'HudsonTracPlugin':  {
+        'site': 'trac-hacks',
+        'repo': 'svn',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'trac-hudson',
+    },
+    'IniAdminPlugin':  {
+        'site': 'trac-hacks',
+        'repo': 'svn',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'trac-iniadmin',
+    },
+    'MasterTicketsPlugin':  {
+        'site': 'trac-hacks',
+        'repo': 'svn',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'trac-mastertickets',
+    },
+    'NavAddPlugin': {
+        'site': 'trac-hacks',
+        'repo': 'svn',
+        'trac_max_version': '1.3.2',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'trac-navadd',
+    },
+    'TimingAndEstimationPlugin': {
+        'site': 'trac-hacks',
+        'repo': 'svn',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'trac-timingandestimation',
+    },
+    'TracWorkflowAdminPlugin': {
+        'site': 'trac-hacks',
+        'repo': 'svn',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'trac-workflowadmin',
+    },
+
+
 }
 
 site_list = {
@@ -45,6 +101,9 @@ site_list = {
         'download': 'https://trac-hacks.org/browser',
         'revision': None,
     },
+    'github-aroth-arsoft': {
+        'git': 'https://github.com/aroth-arsoft',
+    }
 }
 
 re_setup_py_version = re.compile(r'version\s*=\s*[\'"]([a-zA-Z0-9\.]+)[\'"]')
@@ -267,17 +326,23 @@ def extract_archive(archive, dest_dir):
     b = os.path.basename(archive)
     b, last_ext = os.path.splitext(b)
     if last_ext == '.zip':
-        with ZipFile(archive, 'r') as zipObj:
-            # Extract all the contents of zip file in different directory
-            zipObj.extractall(dest_dir)
-        ret = True
+        try:
+            with ZipFile(archive, 'r') as zipObj:
+                # Extract all the contents of zip file in different directory
+                zipObj.extractall(dest_dir)
+            ret = True
+        except BadZipFile as e:
+            print('ZIP file %s error: %s' % (archive, e), file=sys.stderr)
     elif last_ext == '.gz' or last_ext == '.bz2' or last_ext == '.xz':
         b, second_ext = os.path.splitext(b)
         if second_ext == '.tar':
-            with tarfile.open(archive, 'r') as tarObj:
-                # Extract all the contents of tar file in different directory
-                tarObj.extractall(dest_dir)
-            ret = True
+            try:
+                with tarfile.open(archive, 'r') as tarObj:
+                    # Extract all the contents of tar file in different directory
+                    tarObj.extractall(dest_dir)
+                ret = True
+            except tarfile.TarError as e:
+                print('Tar file %s error: %s' % (archive, e), file=sys.stderr)
     #print('extract_archive ret->%s %i' % (archive, ret))
     return ret
 
@@ -329,26 +394,48 @@ class trac_package_update_app(object):
             if site:
                 site_rev = site.get('revision', None)
                 site_archive = site.get('archive', None)
+                site_download = site.get('download', None)
                 if site_archive is None:
-                    url = site.get('download') + '/' + name.lower() + '/'
+                    site_git = site.get('git', None)
+                    url = None
+                    if site_download is not None:
+                        url = site_download + '/' + name.lower() + '/'
+                    elif site_git is not None:
+                        url = site_git + '/' + name.lower() + '/'
                     repo_subdir = details.get('repo_subdir', None)
                     if repo_subdir:
                         url += repo_subdir + '/'
-                    url += '?format=zip'
-                    if site_rev is not None:
-                        url += '&rev=%s' % site_rev
+                    if site_git is None:
+                        url += '?format=zip'
+                        if site_rev is not None:
+                            url += '&rev=%s' % site_rev
                     package_list[name]['site_download_url'] = url
-                else:
-                    url = site.get('download')
+                elif site_download is not None:
+                    url = site_download
                     package_list[name]['site_download_url'] = url
 
     def _list(self):
         for name, details in site_list.items():
             print('Site %s' % name)
-            print('  Revision: %s' % details.get('revision'))
+            site_rev = details.get('revision', None)
+            site_git = details.get('git', None)
+            site_archive = details.get('archive', None)
+            site_download = details.get('download', None)
+            if site_rev is not None:
+                print('  Revision: %s' % site_rev)
+            elif site_archive:
+                print('  Download: %s' % site_download)
+                print('  Archive: %s' % site_archive)
+            elif site_git:
+                print('  Git: %s' % site_git)
+
         for name, details in package_list.items():
+            url = details.get('site_download_url')
+            version = details.get('version', None)
+            if version is not None:
+                url = url.replace('${version}', version)
             print('%s' % name)
-            print('  URL: %s' % details.get('url'))
+            print('  URL: %s' % url)
         return 0
 
     def _download_pkgs(self):
@@ -365,26 +452,37 @@ class trac_package_update_app(object):
                 if version is not None:
                     url = url.replace('${version}', version)
                 site_rev = site.get('revision', None)
+                site_download = site.get('download', None)
                 site_archive = site.get('archive', None)
-                dest_format = 'zip'
-                if site_archive is None:
-                    filename = name.lower()
-                    if site_rev is not None:
-                        filename += '_rev%s' % site_rev
-                    filename += '.zip'
-                else:
-                    filename = name.lower() + '_%s.%s' % (version, site_archive)
-                    dest_format = site_archive
-                dest = os.path.join(self._download_dir, filename)
-                if os.path.isfile(dest):
-                    os.unlink(dest)
-                #print(url)
-                download_ok = False
-                try:
-                    urllib.request.urlretrieve(url, dest)
+                if site_download is None:
                     download_ok = True
-                except urllib.error.HTTPError as ex:
-                    print('HTTP error %s for %s' % (ex, url))
+                else:
+                    dest_format = 'zip'
+                    if site_archive is None:
+                        filename = name.lower()
+                        if site_rev is not None:
+                            filename += '_rev%s' % site_rev
+                        filename += '.zip'
+                    else:
+                        filename = name.lower() + '_%s.%s' % (version, site_archive)
+                        dest_format = site_archive
+                    download_ok = False
+
+                    dest = os.path.join(self._download_dir, filename)
+                    if os.path.isfile(dest):
+                        if self._force:
+                            os.unlink(dest)
+                        else:
+                            download_ok = True
+                    if not download_ok:
+                        #print(url)
+                        try:
+                            urllib.request.urlretrieve(url, dest)
+                            download_ok = True
+                        except urllib.error.HTTPError as ex:
+                            print('HTTP error %s for %s' % (ex, url))
+                    elif self._verbose:
+                        print('Download file %s already exists.' % dest)
 
                 if download_ok and site_archive and delete_files:
                     download_subdir = os.path.basename(url)
@@ -413,7 +511,10 @@ class trac_package_update_app(object):
                         if not download_ok:
                             print('Failed to create tar archive %s from %s' % (dest, base_dir), file=sys.stderr)
 
-                if download_ok:
+                if site_download is None:
+                    # No download required
+                    pass
+                elif download_ok:
                     pkg_download_dir = os.path.join(self._download_dir, name.lower())
                     pkg_download_tag_file = os.path.join(self._download_dir, '.' + name.lower() + '.tag')
 
@@ -639,6 +740,7 @@ class trac_package_update_app(object):
         #=============================================================================================
         parser = argparse.ArgumentParser(description='update/generate trac packages')
         parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', help='enable verbose output of this script.')
+        parser.add_argument('-f', '--force', dest='force', action='store_true', help='force re-download of packages.')
         parser.add_argument('-l', '--list', dest='list', action='store_true', help='show list of all packages.')
         parser.add_argument('-d', '--download', dest='download', action='store_true', help='download the latest version of all packages.')
         parser.add_argument('-u', '--update', dest='update', action='store_true', help='update the package repositories.')
@@ -646,6 +748,7 @@ class trac_package_update_app(object):
 
         args = parser.parse_args()
         self._verbose = args.verbose
+        self._force = args.force
 
         base_dir = os.path.abspath(os.getcwd())
         self._download_dir = os.path.join(base_dir, 'download')
