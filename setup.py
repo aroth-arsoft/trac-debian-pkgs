@@ -40,6 +40,12 @@ package_list = {
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac-crashdump',
     },
+    'arsoft-trac-commitupdater': {
+        'alias': 'commitupdater',
+        'site': 'github-aroth-arsoft',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'arsoft-trac-commitupdater',
+    },
     'AnnouncerPlugin':  {
         'alias': 'announcer',
         'site': 'trac-hacks',

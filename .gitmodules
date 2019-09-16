@@ -40,3 +40,6 @@
 [submodule "repo/trac-clients"]
 	path = repo/trac-clients
 	url = ../pkg-trac-clients.git
+[submodule "repo/arsoft-trac-commitupdater"]
+	path = repo/arsoft-trac-commitupdater
+	url = ../arsoft-trac-commitupdater.git
