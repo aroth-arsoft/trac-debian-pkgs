@@ -31,3 +31,12 @@
 [submodule "repo/trac-graphviz"]
 	path = repo/trac-graphviz
 	url = ../trac-graphviz.git
+[submodule "repo/trac-xmlrpc"]
+	path = repo/trac-xmlrpc
+	url = ../trac-xmlrpc.git
+[submodule "repo/trac-customfieldadmin"]
+	path = repo/trac-customfieldadmin
+	url = ../pkg-trac-customfieldadmin.git
+[submodule "repo/trac-clients"]
+	path = repo/trac-clients
+	url = ../pkg-trac-clients.git

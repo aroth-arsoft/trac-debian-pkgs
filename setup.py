@@ -109,6 +109,30 @@ package_list = {
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac-workflowadmin',
     },
+    'XmlRpcPlugin': {
+        'alias': 'xmlrpc',
+        'site': 'trac-hacks',
+        'repo': 'svn',
+        'repo_subdir': 'trunk',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'trac-xmlrpc',
+    },
+    'CustomFieldAdminPlugin': {
+        'alias': 'customfieldadmin',
+        'site': 'trac-hacks',
+        'repo': 'svn',
+        'repo_subdir': '0.11',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'trac-customfieldadmin',
+    },
+    'ClientsPlugin': {
+        'alias': 'clients',
+        'site': 'trac-hacks',
+        'repo': 'svn',
+        'repo_subdir': 'trunk',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'trac-clients',
+    },
 
 
 }
@@ -411,6 +435,8 @@ class trac_package_update_app(object):
     def _load_package_list(self):
         for name, details in package_list.items():
             if name not in self._packages:
+                #if self._verbose:
+                    #print('Skip package %s' % name)
                 continue
             site = site_list.get(details.get('site', None), None)
             if site:
@@ -452,11 +478,13 @@ class trac_package_update_app(object):
                 print('  Git: %s' % site_git)
 
         for name, details in package_list.items():
+            if name not in self._packages:
+                continue
             if details.get('disable', False):
                 continue
             url = details.get('site_download_url')
             version = details.get('version', None)
-            if version is not None:
+            if url and version is not None:
                 url = url.replace('${version}', version)
             print('%s' % name)
             print('  URL: %s' % url)
@@ -600,7 +628,7 @@ class trac_package_update_app(object):
 
             if repo_ok:
                 print('Repository %s ok' % repo_dir)
-                download_subdir = details.get('repo_subdir', None)
+                download_subdir = details.get('repo_subdir', name.lower())
                 pkg_download_tag_file = os.path.join(self._download_dir, '.' + name.lower() + '.tag')
                 rev = None
                 url = None
