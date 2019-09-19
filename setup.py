@@ -159,6 +159,7 @@ site_list = {
 }
 
 re_setup_py_version = re.compile(r'version\s*=\s*[\'"]([a-zA-Z0-9\.]+)[\'"]')
+re_source_format = re.compile(r'([0-9]+.[0-9]+)\s*\((a-zA-Z)\)')
 
 def get_html_title(url):
     def extract_html_title(data):
@@ -399,13 +400,21 @@ def extract_archive(archive, dest_dir):
     return ret
 
 def make_tarfile(repo_dir, tar_file, prefix, format=None):
+    def debian_orig_filter(tarinfo):
+        elems = tarinfo.name.split('/')
+        #print('name=%s, elems=%s' % (tarinfo.name, elems))
+        if len(elems) >= 2 and elems[1] == 'debian':
+            return None
+        tarinfo.uid = tarinfo.gid = 0
+        tarinfo.uname = tarinfo.gname = "root"
+        return tarinfo
     ret = False
     if format is None:
         b = os.path.basename(tar_file)
         b, last_ext = os.path.splitext(b)
         format = last_ext[1:]
     with tarfile.open(tar_file, "w:%s" % format) as tar:
-        tar.add(repo_dir, arcname=prefix)
+        tar.add(repo_dir, arcname=prefix, filter=debian_orig_filter)
         ret = True
     return ret
 
@@ -703,6 +712,22 @@ class trac_package_update_app(object):
                             else:
                                 commit_msg = 'Automatic update %s' % setup_py_version
 
+                            source_format = None
+                            source_format_version = None
+                            source_format_filename = os.path.join(repo_dir, 'debian/source/format')
+                            try:
+                                f = open(source_format_filename, 'r')
+                                line = f.readline().strip()
+                                m = re_setup_py_version.search(line)
+                                if m:
+                                    source_format_version = m.group(1)
+                                    source_format = m.group(2)
+                                    break
+                                f.close()
+                            except IOError as e:
+                                print('Unable to open %s: %s' % (source_format_filename, e), file=sys.stderr)
+                                pass
+
                             dch_filename = os.path.join(repo_dir, 'debian/changelog')
                             dch_version = None
                             try:
@@ -770,7 +795,10 @@ class trac_package_update_app(object):
                                     sts = -1
 
                                 orig_archive_format = details.get('orig-archive-format', 'tar.xz')
-                                orig_archive_source = details.get('orig-archive-source', 'git')
+                                if source_format == 'native':
+                                    orig_archive_source = details.get('orig-archive-source', 'git')
+                                else:
+                                    orig_archive_source = details.get('orig-archive-source', 'directory')
 
                                 prefix = debian_package_name + '-' + debian_package_orig_version
                                 pkgfile = os.path.join(repo_dir, '..', debian_package_name + '_' + debian_package_orig_version + '.orig.' + orig_archive_format)
