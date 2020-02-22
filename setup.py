@@ -680,155 +680,162 @@ class trac_package_update_app(object):
                                     except IOError as e:
                                         print('Unable to delete %s: %s' % (full, e), file=sys.stderr)
 
-                        pc_dir = os.path.join(repo_dir, '.pc')
-                        if os.path.isdir(pc_dir):
-                            if self._verbose:
-                                print('Delete directory %s' % (pc_dir))
-                            rmdir_p(pc_dir)
-
-                        debian_package_name = None
-                        debian_package_version = None
-                        debian_package_orig_version = None
-                        debian_package_update_ok = False
-                        debian_revision = None
-                        setup_py_version = None
-                        setup_py = os.path.join(repo_dir, 'setup.py')
-                        try:
-                            f = open(setup_py, 'r')
-                            for line in f:
-                                m = re_setup_py_version.search(line)
-                                if m:
-                                    setup_py_version = m.group(1)
-                                    break
-                            f.close()
-                        except IOError as e:
-                            print('Unable to open %s: %s' % (setup_py, e), file=sys.stderr)
-                            pass
-
-                        if setup_py_version:
-
-                            if rev and url:
-                                commit_msg = 'Automatic update %s from %s revision %i' % (setup_py_version, url, rev)
+                        if self._wheel:
+                            if not self._docker_build_wheel(repo_dir):
+                                print('Failed to create wheel for %s' % repo_dir, file=sys.stderr)
+                                ret = False
                             else:
-                                commit_msg = 'Automatic update %s' % setup_py_version
-
-                            source_format = None
-                            source_format_version = None
-                            source_format_filename = os.path.join(repo_dir, 'debian/source/format')
-                            try:
-                                f = open(source_format_filename, 'r')
-                                line = f.readline().strip()
-                                m = re_setup_py_version.search(line)
-                                if m:
-                                    source_format_version = m.group(1)
-                                    source_format = m.group(2)
-                                    break
-                                f.close()
-                            except IOError as e:
-                                print('Unable to open %s: %s' % (source_format_filename, e), file=sys.stderr)
-                                pass
-
-                            dch_filename = os.path.join(repo_dir, 'debian/changelog')
-                            dch_version = None
-                            try:
-                                import debian.changelog
-                                from textwrap import TextWrapper
-                                f = open(dch_filename, 'r')
-                                dch = debian.changelog.Changelog(f)
-                                f.close()
-                                debian_package_name = dch.package
-                                old_version = str(dch.version)
-                                is_dfsg = old_version.find('dfsg') != -1
-                                if rev:
-                                    debian_package_orig_version = setup_py_version + '+svn%i' % rev
-                                elif is_dfsg:
-                                    debian_package_orig_version = setup_py_version + '+dfsg'
-                                else:
-                                    debian_package_orig_version = setup_py_version
-                                new_version = debian_package_orig_version + '-'
-                                if old_version.startswith(new_version):
-                                    i = old_version.find('-')
-                                    if i:
-                                        debian_revision = old_version[i+1:] if i else 0
-                                else:
-                                    debian_revision = '0'
-
-                                debian_revision = increment_debian_revision(debian_revision, strategy=details.get('debian-revision', 'major'))
-                                new_version = new_version + debian_revision
-
-                                debian_package_version = new_version
-                                dch.new_block(
-                                    package=debian_package_name,
-                                    version=debian_package_version,
-                                    distributions=self._distribution,
-                                    urgency=dch.urgency,
-                                    author="%s <%s>" % debian.changelog.get_maintainer(),
-                                    date=debian.changelog.format_date()
-                                )
-                                wrapper = TextWrapper()
-                                wrapper.initial_indent    = "  * "
-                                wrapper.subsequent_indent = "    "
-                                dch.add_change('')
-                                for l in wrapper.wrap(commit_msg):
-                                    dch.add_change(l)
-                                dch.add_change('')
-                                f = open(dch_filename, 'w')
-                                f.write(str(dch))
-                                #print(dch)
-                                f.close()
-                                debian_package_update_ok = True
-                            except IOError as e:
-                                print('Unable to open %s: %s' % (dch_filename, e), file=sys.stderr)
-                                pass
+                                ret = True
                         else:
-                            print('Failed to get version from %s.' % setup_py, file=sys.stderr)
-                            ret = False
+                            pc_dir = os.path.join(repo_dir, '.pc')
+                            if os.path.isdir(pc_dir):
+                                if self._verbose:
+                                    print('Delete directory %s' % (pc_dir))
+                                rmdir_p(pc_dir)
 
-                        if debian_package_update_ok:
+                            debian_package_name = None
+                            debian_package_version = None
+                            debian_package_orig_version = None
+                            debian_package_update_ok = False
+                            debian_revision = None
+                            setup_py_version = None
+                            setup_py = os.path.join(repo_dir, 'setup.py')
+                            try:
+                                f = open(setup_py, 'r')
+                                for line in f:
+                                    m = re_setup_py_version.search(line)
+                                    if m:
+                                        setup_py_version = m.group(1)
+                                        break
+                                f.close()
+                            except IOError as e:
+                                print('Unable to open %s: %s' % (setup_py, e), file=sys.stderr)
+                                pass
 
-                            if pkgrepo == 'git':
+                            if setup_py_version:
+
+                                if rev and url:
+                                    commit_msg = 'Automatic update %s from %s revision %i' % (setup_py_version, url, rev)
+                                else:
+                                    commit_msg = 'Automatic update %s' % setup_py_version
+
+                                source_format = None
+                                source_format_version = None
+                                source_format_filename = os.path.join(repo_dir, 'debian/source/format')
                                 try:
-                                    (sts, stdoutdata, stderrdata) = runcmdAndGetData(args=['git', 'commit', '-am', commit_msg], cwd=repo_dir)
-                                except FileNotFoundError as ex:
-                                    print('Cannot execute git.', file=sys.stderr)
-                                    ret = False
-                                    sts = -1
+                                    f = open(source_format_filename, 'r')
+                                    line = f.readline().strip()
+                                    m = re_source_format.search(line)
+                                    if m:
+                                        source_format_version = m.group(1)
+                                        source_format = m.group(2)
+                                        break
+                                    f.close()
+                                except IOError as e:
+                                    print('Unable to open %s: %s' % (source_format_filename, e), file=sys.stderr)
+                                    pass
 
-                                orig_archive_format = details.get('orig-archive-format', 'tar.xz')
-                                if source_format == 'native':
-                                    orig_archive_source = details.get('orig-archive-source', 'git')
-                                else:
-                                    orig_archive_source = details.get('orig-archive-source', 'directory')
-
-                                prefix = debian_package_name + '-' + debian_package_orig_version
-                                pkgfile = os.path.join(repo_dir, '..', debian_package_name + '_' + debian_package_orig_version + '.orig.' + orig_archive_format)
-                                if orig_archive_source == 'git':
-                                    if orig_archive_format == 'tar.xz':
-                                        if not git_archive_xz(repo_dir, pkgfile, prefix):
-                                            print('Failed to create %s.' % pkgfile, file=sys.stderr)
-                                            ret = False
-                                    elif orig_archive_format == 'tar.gz':
-                                        if not git_archive_gz(repo_dir, pkgfile, prefix):
-                                            print('Failed to create %s.' % pkgfile, file=sys.stderr)
-                                            ret = False
+                                dch_filename = os.path.join(repo_dir, 'debian/changelog')
+                                dch_version = None
+                                try:
+                                    import debian.changelog
+                                    from textwrap import TextWrapper
+                                    f = open(dch_filename, 'r')
+                                    dch = debian.changelog.Changelog(f)
+                                    f.close()
+                                    debian_package_name = dch.package
+                                    old_version = str(dch.version)
+                                    is_dfsg = old_version.find('dfsg') != -1
+                                    if rev:
+                                        debian_package_orig_version = setup_py_version + '+svn%i' % rev
+                                    elif is_dfsg:
+                                        debian_package_orig_version = setup_py_version + '+dfsg'
                                     else:
-                                        print('Invalid package orig archive format \'%s\' specified.' % orig_archive_format, file=sys.stderr)
+                                        debian_package_orig_version = setup_py_version
+                                    new_version = debian_package_orig_version + '-'
+                                    if old_version.startswith(new_version):
+                                        i = old_version.find('-')
+                                        if i:
+                                            debian_revision = old_version[i+1:] if i else 0
+                                    else:
+                                        debian_revision = '0'
+
+                                    debian_revision = increment_debian_revision(debian_revision, strategy=details.get('debian-revision', 'major'))
+                                    new_version = new_version + debian_revision
+
+                                    debian_package_version = new_version
+                                    dch.new_block(
+                                        package=debian_package_name,
+                                        version=debian_package_version,
+                                        distributions=self._distribution,
+                                        urgency=dch.urgency,
+                                        author="%s <%s>" % debian.changelog.get_maintainer(),
+                                        date=debian.changelog.format_date()
+                                    )
+                                    wrapper = TextWrapper()
+                                    wrapper.initial_indent    = "  * "
+                                    wrapper.subsequent_indent = "    "
+                                    dch.add_change('')
+                                    for l in wrapper.wrap(commit_msg):
+                                        dch.add_change(l)
+                                    dch.add_change('')
+                                    f = open(dch_filename, 'w')
+                                    f.write(str(dch))
+                                    #print(dch)
+                                    f.close()
+                                    debian_package_update_ok = True
+                                except IOError as e:
+                                    print('Unable to open %s: %s' % (dch_filename, e), file=sys.stderr)
+                                    pass
+                            else:
+                                print('Failed to get version from %s.' % setup_py, file=sys.stderr)
+                                ret = False
+
+                            if debian_package_update_ok:
+
+                                if pkgrepo == 'git':
+                                    try:
+                                        (sts, stdoutdata, stderrdata) = runcmdAndGetData(args=['git', 'commit', '-am', commit_msg], cwd=repo_dir)
+                                    except FileNotFoundError as ex:
+                                        print('Cannot execute git.', file=sys.stderr)
                                         ret = False
-                                elif orig_archive_source == 'directory':
-                                    i = orig_archive_format.find('.')
-                                    if i > 0:
-                                        format = orig_archive_format[i+1:]
-                                    else:
-                                        format = 'xz'
-                                    make_tarfile(repo_dir, pkgfile, prefix, format=format)
+                                        sts = -1
 
-                                else:
-                                    print('Invalid package orig archive source \'%s\' specified.' % orig_archive_source, file=sys.stderr)
-                                    ret = False
-                        else:
-                            if self._verbose:
-                                print('Debian package update failed.', file=sys.stderr)
-                            ret = False
+                                    orig_archive_format = details.get('orig-archive-format', 'tar.xz')
+                                    if source_format == 'native':
+                                        orig_archive_source = details.get('orig-archive-source', 'git')
+                                    else:
+                                        orig_archive_source = details.get('orig-archive-source', 'directory')
+
+                                    prefix = debian_package_name + '-' + debian_package_orig_version
+                                    pkgfile = os.path.join(repo_dir, '..', debian_package_name + '_' + debian_package_orig_version + '.orig.' + orig_archive_format)
+                                    if orig_archive_source == 'git':
+                                        if orig_archive_format == 'tar.xz':
+                                            if not git_archive_xz(repo_dir, pkgfile, prefix):
+                                                print('Failed to create %s.' % pkgfile, file=sys.stderr)
+                                                ret = False
+                                        elif orig_archive_format == 'tar.gz':
+                                            if not git_archive_gz(repo_dir, pkgfile, prefix):
+                                                print('Failed to create %s.' % pkgfile, file=sys.stderr)
+                                                ret = False
+                                        else:
+                                            print('Invalid package orig archive format \'%s\' specified.' % orig_archive_format, file=sys.stderr)
+                                            ret = False
+                                    elif orig_archive_source == 'directory':
+                                        i = orig_archive_format.find('.')
+                                        if i > 0:
+                                            format = orig_archive_format[i+1:]
+                                        else:
+                                            format = 'xz'
+                                        make_tarfile(repo_dir, pkgfile, prefix, format=format)
+
+                                    else:
+                                        print('Invalid package orig archive source \'%s\' specified.' % orig_archive_source, file=sys.stderr)
+                                        ret = False
+                            else:
+                                if self._verbose:
+                                    print('Debian package update failed.', file=sys.stderr)
+                                ret = False
                     else:
                         print('Failed to copy to %s' % repo_dir, file=sys.stderr)
                         ret = False
@@ -868,6 +875,56 @@ class trac_package_update_app(object):
 
         return ret
 
+    def _docker_build_wheel(self, pkgrepo_dir, pip_package=None, release='py2'):
+        mkdir_p(self._wheel_dir)
+        tmpdir = tempfile.TemporaryDirectory()
+        dockerfile = os.path.join(tmpdir.name, 'Dockerfile')
+        build_sh = os.path.join(tmpdir.name, 'build.sh')
+        alpine_tag = '2-alpine' if release == 'py2' else '3-alpine'
+
+        p = subprocess.run(['python2', 'setup.py', 'sdist', '-d', tmpdir.name], cwd=pkgrepo_dir)
+
+        with open(dockerfile, 'w') as f:
+            f.write("""
+ARG RELEASE=%s
+FROM python:$RELEASE
+RUN apk add --update build-base python2-dev
+""" % release )
+
+        if pip_package is None:
+            with open(build_sh, 'w') as f:
+                f.write("""set -x
+cd /tmp
+tar xvfz /src/*.tar.gz
+name=`basename /src/*.tar.gz .tar.gz`
+cd /tmp/$name
+mkdir /tmp/dist
+pip wheel --wheel-dir /tmp/dist .
+cp /tmp/dist/${name}* /src
+                    """)
+        else:
+            with open(build_sh, 'w') as f:
+                f.write("""set -x
+package='%s'
+if [ "$package" == "lxml" ]; then
+    apk add libxml2-dev libxslt-dev
+fi
+cd /tmp
+pip wheel --wheel-dir /src $package
+""" % package)
+
+        p = subprocess.run(['docker', 'build', '--tag', 'python-build-wheel:%s' % release, '--build-arg', 'RELEASE=%s' % alpine_tag, tmpdir.name])
+
+        p = subprocess.run(['docker', 'run', '--rm', '-v', tmpdir.name + ':/src', 'python-build-wheel:%s' % release, '/bin/sh', '/src/build.sh'])
+
+        for f in os.listdir(tmpdir.name):
+            name, ext = os.path.splitext(f)
+            if ext == '.whl':
+                src = os.path.join(tmpdir.name, f)
+                dst = os.path.join(self._wheel_dir, f)
+                shutil.copy2(src, dst)
+        return True
+
     def main(self):
         #=============================================================================================
         # process command line
@@ -876,18 +933,21 @@ class trac_package_update_app(object):
         parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', help='enable verbose output of this script.')
         parser.add_argument('-f', '--force', dest='force', action='store_true', help='force re-download of packages.')
         parser.add_argument('-l', '--list', dest='list', action='store_true', help='show list of all packages.')
-        parser.add_argument('-np', '--no-publish', dest='no_publish', action='store_true', help='do not publish packages.')
+        parser.add_argument('--publish', dest='publish', action='store_true', help='publish/upload packages to PPA.')
         parser.add_argument('-u', '--update', dest='update', action='store_true', help='update the package repositories.')
+        parser.add_argument('-w', '--wheel', dest='wheel', action='store_true', help='build wheel packages')
         parser.add_argument('-p', '--package', dest='packages', nargs='*', help='select packages to process (default all)')
 
         args = parser.parse_args()
         self._verbose = args.verbose
         self._force = args.force
-        self._no_publish = args.no_publish
+        self._publish = args.publish
+        self._wheel = args.wheel
 
         base_dir = os.path.abspath(os.getcwd())
         self._download_dir = os.path.join(base_dir, 'download')
         self._repo_dir = os.path.join(base_dir, 'repo')
+        self._wheel_dir = os.path.join(base_dir, 'wheel')
         if args.packages:
             self._packages = []
             available_packages = {}
@@ -928,17 +988,19 @@ class trac_package_update_app(object):
         elif args.update:
             if self._download_pkgs():
                 if self._update_package_repo():
-                    if self._no_publish:
-                        ret = 0
-                    else:
+                    if self._publish:
                         if self._ppa_publish():
                             ret = 0
                         else:
                             ret = 5
+                    else:
+                        ret = 0
                 else:
                     ret = 4
             else:
                 ret = 3
+        elif args.wheel:
+            pass
         else:
             ret = 0
 
