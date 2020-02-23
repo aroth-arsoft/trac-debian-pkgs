@@ -108,7 +108,7 @@ package_list = {
         #'pkgrepo_dir': 'trac-navadd',
     #},
     'TimingAndEstimationPlugin': {
-        #'package_name': 'TracWorkflowAdmin',
+        'package_name': 'timingandestimationplugin',
         'alias': 'timingandestimation',
         'site': 'trac-hacks',
         'repo': 'svn',
@@ -687,6 +687,9 @@ class trac_package_update_app(object):
                 else:
                     download_ok = False
                     download_subdir = details.get('repo_subdir', name.lower())
+                    if '/' in download_subdir:
+                        e = download_subdir.split('/')
+                        download_subdir = e[-1]
                     pkg_download_tag_file = os.path.join(self._download_dir, '.' + name.lower() + '.tag')
                     rev = None
                     url = None
@@ -723,6 +726,8 @@ class trac_package_update_app(object):
                                         except IOError as e:
                                             download_ok = False
                                             print('Unable to delete %s: %s' % (full, e), file=sys.stderr)
+                    else:
+                        print('Download directory %s missing' % pkg_download_dir, file=sys.stderr)
 
                 if download_ok:
                     if self._wheel:
@@ -892,6 +897,9 @@ class trac_package_update_app(object):
                             if self._verbose:
                                 print('Debian package update failed.', file=sys.stderr)
                             ret = False
+                else:
+                    print('Download for %s failed' % repo_dir, file=sys.stderr)
+                    ret = False
             else:
                 print('Repository %s failed' % repo_dir, file=sys.stderr)
                 ret = False
