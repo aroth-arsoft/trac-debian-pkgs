@@ -1,0 +1,23 @@
+#!/usr/local/bin/python
+import sys
+import ConfigParser
+
+
+
+filename = sys.argv[1]
+section = sys.argv[2]
+key = sys.argv[3]
+value = sys.argv[4]
+
+f = open(filename, 'r')
+ini = ConfigParser.ConfigParser()
+ini.readfp(f)
+f.close()
+
+if not ini.has_section(section):
+    ini.add_section(section)
+ini.set(section, key, value)
+f = open(filename, 'w')
+ini.write(f)
+f.close()
+

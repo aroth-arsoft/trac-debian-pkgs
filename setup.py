@@ -1010,6 +1010,25 @@ pip wheel %s --wheel-dir /src $package
                 shutil.copy2(src, dst)
         return True
 
+    def _build_docker(self, release='py2', image_name='arsoft-trac'):
+        alpine_tag = '2-alpine' if release == 'py2' else '3-alpine'
+        tmpdir = tempfile.TemporaryDirectory()
+
+        for f in ['Dockerfile', 'start_trac.sh', 'trac-ini', 'trac_wsgi.py']:
+            src = os.path.join(self._docker_dir, f)
+            dst = os.path.join(tmpdir.name, f)
+            shutil.copy2(src, dst)
+
+        for f in os.listdir(self._wheel_dir):
+            src = os.path.join(self._wheel_dir, f)
+            dst = os.path.join(tmpdir.name, f)
+            shutil.copy2(src, dst)
+
+        p = subprocess.run(['docker', 'build', '--tag', '%s:%s' % (image_name, release), '--build-arg', 'RELEASE=%s' % alpine_tag, tmpdir.name])
+        p = subprocess.run(['docker', 'tag', '%s:%s' % (image_name, release), '%s:latest' % (image_name)])
+
+        pass
+
     def main(self):
         #=============================================================================================
         # process command line
@@ -1021,6 +1040,7 @@ pip wheel %s --wheel-dir /src $package
         parser.add_argument('--publish', dest='publish', action='store_true', help='publish/upload packages to PPA.')
         parser.add_argument('-u', '--update', dest='update', action='store_true', help='update the package repositories.')
         parser.add_argument('-w', '--wheel', dest='wheel', action='store_true', help='build wheel packages')
+        parser.add_argument('-d', '--docker', dest='docker', action='store_true', help='build docker image')
         parser.add_argument('-p', '--package', dest='packages', nargs='*', help='select packages to process (default all)')
 
         args = parser.parse_args()
@@ -1028,11 +1048,15 @@ pip wheel %s --wheel-dir /src $package
         self._force = args.force
         self._publish = args.publish
         self._wheel = args.wheel
+        self._docker = args.docker
+        if args.docker:
+            self._wheel = True
 
         base_dir = os.path.abspath(os.getcwd())
         self._download_dir = os.path.join(base_dir, 'download')
         self._repo_dir = os.path.join(base_dir, 'repo')
         self._wheel_dir = os.path.join(base_dir, 'wheel')
+        self._docker_dir = os.path.join(base_dir, 'docker')
         if args.packages:
             self._packages = []
             available_packages = {}
@@ -1061,12 +1085,13 @@ pip wheel %s --wheel-dir /src $package
             print('Debian python extension not available. Please install python3-debian.', file=sys.stderr)
             return 2
 
-        lsb_release = IniFile('/etc/lsb-release')
-        self._distribution = lsb_release.get(None, 'DISTRIB_CODENAME', 'unstable')
-        lsb_release.close()
+        if args.list or args.update:
+            lsb_release = IniFile('/etc/lsb-release')
+            self._distribution = lsb_release.get(None, 'DISTRIB_CODENAME', 'unstable')
+            lsb_release.close()
 
-        self._get_latest_revisions()
-        self._load_package_list()
+            self._get_latest_revisions()
+            self._load_package_list()
 
         if args.list:
             ret = self._list()
@@ -1078,12 +1103,22 @@ pip wheel %s --wheel-dir /src $package
                             ret = 0
                         else:
                             ret = 5
+                    elif self._docker:
+                        if self._build_docker():
+                            ret = 0
+                        else:
+                            ret = 5
                     else:
                         ret = 0
                 else:
                     ret = 4
             else:
                 ret = 3
+        elif self._docker:
+            if self._build_docker():
+                ret = 0
+            else:
+                ret = 5
         elif args.wheel:
             pass
         else:
