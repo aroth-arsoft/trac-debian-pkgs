@@ -38,12 +38,14 @@ package_list = {
         'pkgrepo_dir': 'trac-advancedworkflow',
     },
     'trac-crashdump': {
+        'package_name': 'TracCrashDump',
         'alias': 'crashdump',
         'site': 'github-aroth-arsoft',
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac-crashdump',
     },
     'arsoft-trac-commitupdater': {
+        'package_name': 'arsoft-trac-commitupdater',
         'alias': 'commitupdater',
         'site': 'github-aroth-arsoft',
         'pkgrepo': 'git',
@@ -656,6 +658,7 @@ class trac_package_update_app(object):
                     repo_ok = True
                     no_download = True
             elif pkgrepo == 'git':
+                no_download = True
                 pkgrepo_dir = details.get('pkgrepo_dir', None)
                 if pkgrepo_dir:
                     repo_dir = os.path.join(self._repo_dir, pkgrepo_dir)
@@ -944,7 +947,7 @@ class trac_package_update_app(object):
                 print('Build wheel from PIP %s' % pip_package)
         #return True
         mkdir_p(self._wheel_dir)
-        basename = name if pip_package is None else pip_package
+        basename = (name if pip_package is None else pip_package).replace('-', '_')
         wheel_file = None
         if not force:
             for f in os.listdir(self._wheel_dir):
@@ -981,7 +984,8 @@ name=`basename /src/*.tar.gz .tar.gz`
 cd /tmp/$name
 mkdir /tmp/dist
 pip wheel %s --wheel-dir /tmp/dist .
-cp /tmp/dist/${name}* /src
+pkgname=`python /tmp/$name/setup.py --name`
+cp /tmp/dist/${pkgname//-/_}* /src
                     """ % no_deps)
         else:
             with open(build_sh, 'w') as f:
