@@ -1120,7 +1120,7 @@ pip wheel %s --wheel-dir /src $package
             else:
                 ret = 5
         elif args.wheel:
-            pass
+            ret = 0
         else:
             ret = 0
 
