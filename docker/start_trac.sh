@@ -7,10 +7,21 @@ gunicorn_num_workers=1
 
 function upgrade() {
 
-    trac-ini "$trac_env/conf/trac.ini" "components" "announcer.*" "enabled"
-    trac-ini "$trac_env/conf/trac.ini" "components" "customfieldadmin.*" "enabled"
-    trac-ini "$trac_env/conf/trac.ini" "components" "tracworkflowadmin.*" "enabled"
-    trac-ini "$trac_env/conf/trac.ini" "components" "clients.*" "enabled"
+    # Only enable addons once
+    if [ ! -f "$trac_env/addons_enabled" ]; then
+        echo "done" > "$trac_env/addons_enabled"
+        trac-ini "$trac_env/conf/trac.ini" "components" "announcer.*" "enabled"
+        trac-ini "$trac_env/conf/trac.ini" "components" "customfieldadmin.*" "enabled"
+        trac-ini "$trac_env/conf/trac.ini" "components" "tracworkflowadmin.*" "enabled"
+        trac-ini "$trac_env/conf/trac.ini" "components" "clients.*" "enabled"
+        trac-ini "$trac_env/conf/trac.ini" "components" "HudsonTrac.HudsonTracPlugin.*" "enabled"
+        trac-ini "$trac_env/conf/trac.ini" "components" "timingandestimationplugin.*" "enabled"
+        trac-ini "$trac_env/conf/trac.ini" "components" "advancedworkflow.*" "enabled"
+        trac-ini "$trac_env/conf/trac.ini" "components" "crashdump.*" "enabled"
+        trac-ini "$trac_env/conf/trac.ini" "components" "iniadmin.*" "enabled"
+        trac-ini "$trac_env/conf/trac.ini" "components" "mastertickets.*" "enabled"
+        trac-ini "$trac_env/conf/trac.ini" "components" "tracrpc.*" "enabled"
+    fi
 
     su -s /bin/sh -c "trac-admin \"$trac_env\" upgrade" "$trac_user"
     su -s /bin/sh -c "trac-admin \"$trac_env\" wiki upgrade" "$trac_user"
