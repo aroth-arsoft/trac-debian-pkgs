@@ -16,6 +16,7 @@ from arsoft.inifile import IniFile
 
 package_list = {
     'trac': {
+        'package_name': 'Trac',
         'site': 'trac',
         'version': '1.4.1',
         'pkgrepo': 'git',
@@ -28,6 +29,7 @@ package_list = {
     },
 
     'AdvancedTicketWorkflowPlugin':  {
+        'package_name': 'TracAdvancedTicketWorkflow',
         'alias': 'advancedworkflow',
         'site': 'trac-hacks',
         'repo': 'svn',
@@ -48,6 +50,7 @@ package_list = {
         'pkgrepo_dir': 'arsoft-trac-commitupdater',
     },
     'AnnouncerPlugin':  {
+        'package_name': 'TracAnnouncer',
         'alias': 'announcer',
         'site': 'trac-hacks',
         'repo': 'svn',
@@ -58,6 +61,7 @@ package_list = {
     # graphix plugin is no longer requried for workflowadmin plugin
     'GraphvizPlugin':  {
         'disable': True,
+        'package_name': 'TracGraphviz',
         'alias': 'graphviz',
         'site': 'trac-hacks',
         'repo': 'svn',
@@ -66,6 +70,7 @@ package_list = {
         'pkgrepo_dir': 'trac-graphviz',
     },
     'HudsonTracPlugin':  {
+        'package_name': 'HudsonTrac',
         'alias': 'hudson',
         'site': 'trac-hacks',
         'repo': 'svn',
@@ -75,6 +80,7 @@ package_list = {
         'orig-archive-source': 'directory',
     },
     'IniAdminPlugin':  {
+        'package_name': 'TracIniAdmin',
         'alias': 'iniadmin',
         'site': 'trac-hacks',
         'repo': 'svn',
@@ -84,6 +90,7 @@ package_list = {
         'orig-archive-source': 'directory',
     },
     'MasterTicketsPlugin':  {
+        'package_name': 'TracMasterTickets',
         'alias': 'mastertickets',
         'site': 'trac-hacks',
         'repo': 'svn',
@@ -101,6 +108,7 @@ package_list = {
         #'pkgrepo_dir': 'trac-navadd',
     #},
     'TimingAndEstimationPlugin': {
+        #'package_name': 'TracWorkflowAdmin',
         'alias': 'timingandestimation',
         'site': 'trac-hacks',
         'repo': 'svn',
@@ -109,6 +117,7 @@ package_list = {
         'pkgrepo_dir': 'trac-timingandestimation',
     },
     'TracWorkflowAdminPlugin': {
+        'package_name': 'TracWorkflowAdmin',
         'alias': 'workflowadmin',
         'site': 'trac-hacks',
         'repo_subdir': '0.12',
@@ -117,6 +126,7 @@ package_list = {
         'pkgrepo_dir': 'trac-workflowadmin',
     },
     'XmlRpcPlugin': {
+        'package_name': 'TracXMLRPC',
         'alias': 'xmlrpc',
         'site': 'trac-hacks',
         'repo': 'svn',
@@ -125,6 +135,7 @@ package_list = {
         'pkgrepo_dir': 'trac-xmlrpc',
     },
     'CustomFieldAdminPlugin': {
+        'package_name': 'TracCustomFieldAdmin',
         'alias': 'customfieldadmin',
         'site': 'trac-hacks',
         'repo': 'svn',
@@ -133,6 +144,7 @@ package_list = {
         'pkgrepo_dir': 'trac-customfieldadmin',
     },
     'ClientsPlugin': {
+        'package_name': 'TracClients',
         'alias': 'clients',
         'site': 'trac-hacks',
         'repo': 'svn',
@@ -634,6 +646,7 @@ class trac_package_update_app(object):
             pkgrepo = details.get('pkgrepo', None)
             wheel = details.get('wheel', None)
             no_repo = details.get('no_repo', False)
+            package_name = details.get('package_name', name)
             no_download = False
             repo_dir = None
             repo_ok = False
@@ -718,13 +731,13 @@ class trac_package_update_app(object):
                             ret = True
                         else:
                             if no_repo:
-                                if not self._docker_build_wheel(pip_package=name, without_depends=False):
+                                if not self._docker_build_wheel(package_name, pip_package=package_name, without_depends=False):
                                     print('Failed to create wheel for %s' % repo_dir, file=sys.stderr)
                                     ret = False
                                 else:
                                     ret = True
                             else:
-                                if not self._docker_build_wheel(repo_dir):
+                                if not self._docker_build_wheel(package_name, repo_dir):
                                     print('Failed to create wheel for %s' % repo_dir, file=sys.stderr)
                                     ret = False
                                 else:
@@ -915,15 +928,15 @@ class trac_package_update_app(object):
 
         return ret
 
-    def _docker_build_wheel(self, pkgrepo_dir=None, pip_package=None, release='py2', without_depends=True, force=False):
+    def _docker_build_wheel(self, name, pkgrepo_dir=None, pip_package=None, release='py2', without_depends=True, force=False):
         if self._verbose:
             if pkgrepo_dir:
-                print('Build wheel from directory %s' % pkgrepo_dir)
+                print('Build wheel %s from directory %s' % (name, pkgrepo_dir))
             else:
                 print('Build wheel from PIP %s' % pip_package)
         #return True
         mkdir_p(self._wheel_dir)
-        basename = os.path.basename(pkgrepo_dir) if pkgrepo_dir else pip_package
+        basename = name if pip_package is None else pip_package
         wheel_file = None
         if not force:
             for f in os.listdir(self._wheel_dir):
