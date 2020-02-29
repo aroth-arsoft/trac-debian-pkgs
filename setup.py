@@ -51,6 +51,13 @@ package_list = {
         'pkgrepo': 'git',
         'pkgrepo_dir': 'arsoft-trac-commitupdater',
     },
+    'arsoft-python': {
+        'package_name': 'arsoft-python',
+        'alias': 'arsoft-python',
+        'site': 'github-aroth-arsoft',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'arsoft-python',
+    },
     'AnnouncerPlugin':  {
         'package_name': 'TracAnnouncer',
         'alias': 'announcer',
