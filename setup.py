@@ -7,6 +7,8 @@ import urllib.request
 import errno
 import shutil
 import re
+import socket
+import http
 import os
 import os.path
 from zipfile import ZipFile, BadZipFile
@@ -225,7 +227,12 @@ def get_html_title(url):
     except urllib.error.HTTPError as e:
         if self._verbose:
             print('HTTP Error %s: %s' % (url, e))
-        pass
+    except socket.timeout:
+        if self._verbose:
+            print('Network timeout: %s' % (url))
+    except  http.client.HTTPException as e:
+        if self._verbose:
+            print('HTTP Exception %s: %s' % (url, e))
     return None
 
 def mkdir_p(path):
@@ -518,7 +525,7 @@ class trac_package_update_app(object):
             site_git = details.get('git', None)
             site_archive = details.get('archive', None)
             site_download = details.get('download', None)
-            site_package_base = site.get('package_base', None)
+            site_package_base = details.get('package_base', None)
             if site_rev is not None:
                 print('  Revision: %s' % site_rev)
             elif site_archive:
@@ -746,13 +753,13 @@ class trac_package_update_app(object):
                             ret = True
                         else:
                             if no_repo:
-                                if not self._docker_build_wheel(package_name, pip_package=package_name, without_depends=False):
+                                if not self._docker_build_wheel(package_name, pip_package=package_name, without_depends=False, force=self._force):
                                     print('Failed to create wheel for %s' % repo_dir, file=sys.stderr)
                                     ret = False
                                 else:
                                     ret = True
                             else:
-                                if not self._docker_build_wheel(package_name, repo_dir):
+                                if not self._docker_build_wheel(package_name, repo_dir, force=self._force):
                                     print('Failed to create wheel for %s' % repo_dir, file=sys.stderr)
                                     ret = False
                                 else:
@@ -956,11 +963,15 @@ class trac_package_update_app(object):
         mkdir_p(self._wheel_dir)
         basename = (name if pip_package is None else pip_package).replace('-', '_')
         wheel_file = None
+        wheel_packages = []
         if not force:
             for f in os.listdir(self._wheel_dir):
                 name, ext = os.path.splitext(f)
                 if ext == '.whl' and name.startswith(basename + '-'):
                     wheel_file = os.path.join(self._wheel_dir, f)
+                    if '-' in name:
+                        pkgname, pkgver = name.split('-', 1)
+                        wheel_packages.append(pkgname)
 
         if wheel_file:
             if self._verbose:
@@ -1042,7 +1053,7 @@ pip wheel %s --wheel-dir /src $package
         #=============================================================================================
         parser = argparse.ArgumentParser(description='update/generate trac packages')
         parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', help='enable verbose output of this script.')
-        parser.add_argument('-f', '--force', dest='force', action='store_true', help='force re-download of packages.')
+        parser.add_argument('-f', '--force', dest='force', action='store_true', help='force re-download of packages or re-build of wheels.')
         parser.add_argument('-l', '--list', dest='list', action='store_true', help='show list of all packages.')
         parser.add_argument('--publish', dest='publish', action='store_true', help='publish/upload packages to PPA.')
         parser.add_argument('-u', '--update', dest='update', action='store_true', help='update the package repositories.')
