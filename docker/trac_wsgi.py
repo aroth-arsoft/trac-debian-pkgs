@@ -21,7 +21,7 @@ def gunicorn_dispatch_request(environ, start_response):
     #environ['PATH_INFO'] = path[len(TRAC_BASE_PATH):]
     environ['PATH_INFO'] = path
     environ['SCRIPT_NAME'] = TRAC_BASE_PATH
-    print(environ['SCRIPT_NAME'], environ['PATH_INFO'])
+    #print(environ['SCRIPT_NAME'], environ['PATH_INFO'])
     if 'HTTP_REMOTE_USER' in environ:
         environ['REMOTE_USER'] = environ['HTTP_REMOTE_USER']
     if 'REMOTE_USER' in environ and '@' in environ['REMOTE_USER']:

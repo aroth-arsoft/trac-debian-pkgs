@@ -5,15 +5,16 @@ script_dir=`dirname "$script_file"`
 default_image_name='arsoft-trac'
 docker_image_name=''
 docker_build_lsb_release=''
-data_dir=''
+TRAC_ENV_DIR=''
+clear_env=0
 
 function usage() {
 	echo "Usage: $script_file [OPTIONS]"
 	echo "OPTIONS:"
 	echo "    -h, --help            shows this help"
 	echo "    -v, --verbose         enable verbose output"
-	echo ""
-	echo "  LSB_RELEASE    name of the LSB release (e.g. bionic, centos7; default $docker_build_lsb_release)"
+	echo "    --env <dir>           use different trac environment (default: $TRAC_ENV_DIR)"
+	echo "    --clear               clear trac environment"
 	exit 0
 }
 
@@ -38,7 +39,8 @@ while [ $# -ne 0 ]; do
     case "$1" in
     '-?'|'-h'|'--help') usage;;
     '-v'|'--verbose') verbose=1; ;;
-    '--data') data_dir="$1"; shift; ;;
+    '--clear') clear_env=1; ;;
+    '--env') TRAC_ENV_DIR="$1"; shift; ;;
     -*)
         echo "Unrecognized option $1" >&2
         exit 1
@@ -49,7 +51,14 @@ while [ $# -ne 0 ]; do
     shift
 done
 
-[ -z "$data_dir" ] && data_dir="$script_dir/../data"
-[ ! -d "$data_dir" ] && mkdir "$data_dir"
+[ -z "$TRAC_ENV_DIR" ] && TRAC_ENV_DIR="$script_dir/../data"
+if [ ! -d "$TRAC_ENV_DIR" ]; then
+    mkdir "$TRAC_ENV_DIR"
+fi
 
-docker_run "$default_image_name" -v "$data_dir:/home/trac/env" $@
+image_env=''
+if [ $clear_env -ne 0 ] ;then
+    image_env="$image_env -e TRAC_CLEAR_ENV=1"
+fi
+
+docker_run "$default_image_name" -v "$TRAC_ENV_DIR:/home/trac/env" $image_env $@
