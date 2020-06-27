@@ -25,7 +25,8 @@ services:
         ports:
             - "8000:8000"
         volumes:
-            - tracdata:/opt/joget/wflow
+            - tracdata:/home/trac/env
+            - ./git:/git
 volumes:
     tracdata:
     tracdbdata:
