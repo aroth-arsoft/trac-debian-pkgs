@@ -8,7 +8,7 @@ ENV container=docker LANG=C.UTF-8
 ENV TRAC_VERSION="1.4"
 
 RUN apk add --update-cache libxslt graphviz git && \
-    pip install gunicorn Trac>=${TRAC_VERSION} PyMySQL pytz && \
+    pip install gunicorn Trac>=${TRAC_VERSION} PyMySQL pytz Babel && \
     rm -rf /root/.cache/ && \
     adduser -S -s /bin/sh trac
 
