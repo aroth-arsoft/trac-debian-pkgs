@@ -1,0 +1,1645 @@
+#!/usr/local/bin/python
+# -*- coding: utf-8 -*-
+# kate: space-indent on; indent-width 4; mixedindent off; indent-mode python;
+
+import sys
+import os
+import argparse
+import re
+import datetime
+import os
+
+
+def is_quoted_string(str):
+    if len(str) > 1 and ((str[0] == '"' and str[-1] == '"') or (str[0] == '\'' and str[-1] == '\'')):
+        return True
+    else:
+        return False
+
+def unquote_string(str):
+    if is_quoted_string(str):
+        return str[1:-1]
+    else:
+        return str
+
+def quote_string(str, quote_char='\''):
+    return quote_char + str + quote_char
+
+def escape_string_for_c(str):
+    tmap = {"'":  r"\'",
+            "\"":  r"\"",
+            "\\": r"\\",
+            "\r": r"\r",
+            "\n": r"\n",
+            "\t": r"\t",
+            }
+    ret = ''
+    for c in str:
+        ret += tmap.get(c, c)
+    return ret
+
+def unescape_string_from_c(str):
+    tmap = {"'":  "'",
+            "\"":  "\"",
+            "\\": "\\",
+            "r": "\r",
+            "n": "\n",
+            "t": "\t",
+            }
+    ret = ''
+    i = 0
+    l = len(str)
+    while i < l:
+        if str[i] == '\\':
+            ret += tmap.get(str[i+1], str[i+1])
+            i = i + 2
+        else:
+            ret += str[i]
+            i = i + 1
+    return ret
+
+class IniSection(object):
+
+    def __init__(self, inifile, name, lineno=-1, original=None, comment=''):
+        self.inifile = inifile
+        self.name = name
+        self.lineno = lineno
+        self.original = original
+        self.comment = comment
+        self.values = []
+
+    def clone(self, newinifile=None):
+        ret = IniSection(newinifile if newinifile else self.inifile, self.name, self.lineno, self.original, self.comment)
+        for v in iter(self.values):
+            ret.values.append(v.clone(newinifile))
+        return ret
+
+    class IniLine(object):
+        inifile = None
+        lineno = -1
+        original = ''
+        key = ''
+        value = ''
+        comment = ''
+        disabled = False
+        def __init__(self, inifile, lineno, original, key, value, comment='', disabled=False):
+            self.inifile = inifile
+            self.lineno = lineno
+            self.original = original
+            self.key = key
+            self.value = value
+            self.comment = comment
+            self.disabled = disabled
+
+        def clone(self, newinifile=None):
+            ret = IniSection.IniLine(newinifile if newinifile else self.inifile, self.lineno, self.original, self.key, self.value, self.comment, self.disabled)
+            return ret
+
+        def asString(self, only_data=False):
+            if self.original is not None and not only_data:
+                ret = self.original
+            else:
+                if self.disabled == False:
+                    ret = ''
+                else:
+                    ret = self.inifile.m_commentPrefix
+                if self.key is not None:
+                    ret += self.key + self.inifile.m_keyValueSeperator
+                    if self.value is not None:
+                        ret += str(self.value)
+                if self.comment is not None and not only_data:
+                    if len(ret) > 0:
+                        ret += ' ' + self.inifile.m_commentPrefix + self.comment
+                    else:
+                        ret += self.inifile.m_commentPrefix + self.comment
+            if only_data:
+                if len(ret) > 0:
+                    ret += '\n'
+            else:
+                ret += '\n'
+            return ret
+
+        def __str__(self):
+            return self.asString(only_data=False)
+
+        def __repr__(self):
+            return self.asString(only_data=False)
+
+    def get(self, key, default=''):
+        for v in self.values:
+            if v.key == key:
+                return v.value
+        return default
+
+    def getAsBoolean(self, key, default=None):
+        value = self.get(key, default)
+        if value is not None:
+            try:
+                num = int(value)
+                ret = True if num != 0 else False
+            except ValueError:
+                str = value.lower()
+                if str == 'true' or str == 'yes' or str == 'on':
+                    ret = True
+                elif str == 'false' or str == 'no' or str == 'off':
+                    ret = False
+                else:
+                    ret = default
+        else:
+            ret = default
+        return ret
+
+    def getAsInteger(self, key, default=None):
+        value = self.get(key, default)
+        if value is not None:
+            try:
+                ret = int(value)
+            except ValueError:
+                ret = default
+        else:
+            ret = default
+        return ret
+
+    def getAsDateTime(self, key, default=None, date_format='%a, %d %b %Y %H:%M:%S %z'):
+        value = self.get(key, default)
+        if value is not None:
+            if isinstance(value, datetime.datetime):
+                ret = value
+            else:
+                try:
+                    ret = datetime.datetime.strptime(value)
+                except ValueError:
+                    ret = default
+        else:
+            ret = default
+        return ret
+
+    def getAsTimestamp(self, key, default=None):
+        value = self.get(key, default)
+        if value is not None:
+            if isinstance(value, datetime.datetime):
+                ret = value
+            else:
+                try:
+                    num = float(value)
+                    ret = datetime.datetime.fromtimestamp(num)
+                except ValueError:
+                    ret = default
+        else:
+            ret = default
+        return ret
+
+    def getAsArray(self, key, default=[]):
+        ret = []
+        found = False
+        for v in self.values:
+            if v.key == key:
+                ret.append( v.value )
+                found = True
+        return ret if found else default
+
+    def get_all(self):
+        ret = []
+        for v in self.values:
+            ret.append( (v.key, v.value) )
+        return ret
+
+    def get_all_as_dict(self):
+        ret = {}
+        for v in self.values:
+            ret[v.key] = v.value
+        return ret
+
+    def set(self, key, value, comment='', disabled=False):
+        if type(value) == list:
+            idx = 0
+            found = 0
+            last = -1
+            num_values = len(value)
+            i = 0
+            for v in iter(self.values):
+                if v.key == key:
+                    if idx < num_values:
+                        v.value = value[idx]
+                        if type(comment) == list:
+                            v.comment = comment[idx]
+                        else:
+                            v.comment = comment
+                        if type(disabled) == list:
+                            v.disabled = disabled[idx]
+                        else:
+                            v.disabled = disabled
+                        v.original = None
+                        idx += 1
+                        found += 1
+                        last = i
+                    else:
+                        self.values.remove(v)
+                i += 1
+            if found < num_values:
+                for idx in range(found, num_values):
+                    if type(comment) == list:
+                        c = comment[idx]
+                    else:
+                        c = comment
+                    if type(disabled) == list:
+                        d = disabled[idx]
+                    else:
+                        d = disabled
+                    iniline = IniSection.IniLine(self.inifile, -1, None, key, value[idx], c, d)
+                    if last < 0:
+                        self.values.append(iniline)
+                    else:
+                        self.values.insert(last, iniline)
+                        last += 1
+            ret = True
+        else:
+            found = False
+            for v in self.values:
+                if v.key == key:
+                    if found == False:
+                        v.original = None
+                        v.value = value
+                        v.comment = comment
+                        v.disabled = disabled
+                        found = True
+                    else:
+                        del(v)
+            if found == False:
+                self.values.append(IniSection.IniLine(self.inifile, -1, None, key, value, comment, disabled))
+            ret = True
+        return ret
+
+    def _getLast(self, key):
+        ret = None
+        for v in self.values:
+            if v.key == key:
+                ret = v
+                break
+        return ret
+
+    def append(self, key, value, comment='', disabled=False):
+        self.values.append(IniSection.IniLine(self.inifile, -1, None, key, value, comment, disabled))
+
+    def appendRaw(self, lineno, line, key, value, comment, disabled):
+        self.values.append(IniSection.IniLine(self.inifile, lineno, line, key, value, comment, disabled))
+
+    def remove(self, key):
+        found = False
+        for v in self.values:
+            if v.key == key:
+                found = True
+                self.values.remove(v)
+                break
+        return found
+
+    def merge(self, another_section):
+        ret = True
+        for v in another_section.values:
+            if not self.set(v.key, v.value, v.comment, v.disabled):
+                ret = False
+                break
+        return ret
+
+    def clear(self):
+        self.lineno = -1
+        self.original = None
+        self.values = []
+        self.comment = ''
+
+    @property
+    def empty(self):
+        return True if len(self.values) == 0 else False
+
+    @property
+    def comments(self):
+        ret = []
+        for value in self.values:
+            if value.comment is not None and len(value.comment) != 0:
+                ret.append(value.comment)
+        return ret
+
+    def replace_comment(self, comment, new_comment):
+        ret = False
+        for value in iter(self.values):
+            if value.comment is not None and value.comment == comment:
+                value.original = None
+                value.comment = new_comment
+                ret = True
+        return ret
+
+
+    def asString(self, only_data=False):
+        if self.original is not None and not only_data:
+            ret = self.original + '\n'
+        else:
+            if self.name is not None:
+                ret = '[' + self.name + ']';
+            else:
+                ret = ''
+            if not only_data:
+                if len(self.comment) > 0:
+                    ret += ' ' + self.inifile.m_commentPrefix + self.comment + '\n'
+                elif len(ret) > 0:
+                    ret += '\n'
+            elif len(ret) > 0:
+                ret += '\n'
+        for v in self.values:
+            ret += v.asString(only_data=only_data)
+        return ret
+
+    def __str__(self):
+        return self.asString(only_data=False)
+
+    def __repr__(self):
+        return self.asString(only_data=False)
+
+class IniFile(object):
+    def __init__(self, filename=None, commentPrefix=None, keyValueSeperator=None, disabled_values=True, keyIsWord=True, autoQuoteStrings=False, qt=False):
+        self.m_commentPrefix = commentPrefix
+        self.m_keyValueSeperator = keyValueSeperator
+        self.m_autoQuoteStrings = True if autoQuoteStrings or qt else False
+        self.m_autoEscapeStrings = True if qt else False
+        self.m_sections = []
+        self.m_filename = filename
+        self.m_last_error = None
+        #
+        # Regular expressions for parsing section headers and options.
+        #
+        self.SECTCRE = re.compile(
+            r'\s*\['                              # [
+            r'(?P<header>[^]]+)'                  # very permissive!
+            r'\]\s*'                              # ]
+            )
+        if disabled_values:
+            if commentPrefix:
+                disabled_re = r'\s*(?P<disabled>[' + commentPrefix + ']*)'
+            else:
+                disabled_re = r'\s*(?P<disabled>[#;]*)'
+        else:
+            disabled_re = r''
+        if qt:
+            key_re = r'[\w\\]+'
+        elif keyIsWord:
+            key_re = r'[\w]+'
+        else:
+            comment_chars = commentPrefix if commentPrefix else '#;'
+            if keyValueSeperator:
+                key_re = r'[^' + keyValueSeperator + comment_chars + ']'
+            else:
+                key_re = r'[^:= \t' + comment_chars + ']'
+        if keyValueSeperator:
+            key_and_value_separator_re = r'\s*(?P<option>' + key_re + '[^' + keyValueSeperator + ']*)(?P<vi>[' + keyValueSeperator + '])'
+        else:
+            # very permissive!
+            # any number of space/tab,
+            # followed by separator
+            # (either : or =), followed
+            # by any # space/tab
+            key_and_value_separator_re = r'\s*(?P<option>' + key_re + '[^:= \t]*)' \
+                     r'\s*(?P<vi>[:=])\s*'
+        self.OPTCRE = re.compile(
+            disabled_re +
+            key_and_value_separator_re +
+            r'(?P<value>.*)$' # everything up to eol is the value
+            )
+        if commentPrefix:
+            self.COMMENTRE = re.compile(
+                r'\s*(?P<commentchar>[' + commentPrefix + '])\s*(?P<comment>.*)'
+                )
+        else:
+            self.COMMENTRE = re.compile(
+                r'\s*(?P<commentchar>[#;])\s*(?P<comment>.*)'
+                )
+        #print('OPTCRE=' + str(self.OPTCRE.pattern))
+        #print('COMMENTRE=' + str(self.COMMENTRE.pattern))
+
+        if filename is not None:
+            self._open(filename)
+
+    def _open(self, filename):
+        try:
+            f = open(filename, 'r')
+            self._read(f)
+            f.close()
+            ret = True
+        except IOError as e:
+            self.m_last_error = e
+            ret = False
+        return ret
+
+    def open(self, filename=None):
+        if filename is None:
+            filename = self.m_filename
+        if hasattr(filename , 'read'):
+            self._read(filename)
+            ret = True
+        else:
+            ret = self._open(filename)
+            if not ret:
+                self.m_sections = []
+        return ret
+
+    def close(self):
+        self.m_sections = []
+        self.m_commentPrefix = None
+        self.m_keyValueSeperator = None
+        self.m_last_error = None
+
+    def clone(self):
+        ret = IniFile(filename=None, commentPrefix=self.m_commentPrefix, keyValueSeperator=self.m_keyValueSeperator,
+                      disabled_values=True, keyIsWord=True, autoQuoteStrings=self.m_autoQuoteStrings)
+        ret.SECTCRE = self.SECTCRE
+        ret.OPTCRE = self.OPTCRE
+        ret.COMMENTRE = self.COMMENTRE
+        ret.m_sections = []
+        for section in iter(self.m_sections):
+            newsection = section.clone()
+            newsection.inifile = ret
+            ret.m_sections.append(newsection)
+        return ret
+
+    @property
+    def filename(self):
+        return self.m_filename
+    @property
+    def last_error(self):
+        return self.m_last_error
+
+    @property
+    def commentPrefix(self):
+        return self.m_commentPrefix
+
+    @property
+    def keyValueSeperator(self):
+        return self.m_keyValueSeperator
+
+    def _getSection(self, name):
+        for section in self.m_sections:
+            if section.name == name:
+                return section
+        return None
+
+    def _read(self, file):
+        """Parse a sectioned setup file.
+
+        The sections in setup file contains a title line at the top,
+        indicated by a name in square brackets (`[]'), plus key/value
+        options lines, indicated by `name: value' format lines.
+        Continuations are represented by an embedded newline then
+        leading whitespace.  Blank lines, lines beginning with a '#',
+        and just about everything else are ignored.
+        """
+        commentPrefix = self.m_commentPrefix
+        commentPrefixLen = 0 if commentPrefix is None else len(commentPrefix)
+        keyValueSeperator = self.m_keyValueSeperator
+        #print('commentPrefix='+str(commentPrefix))
+        #print('keyValueSeperator='+str(keyValueSeperator))
+
+        cursect = None                            # None, or a dictionary
+        optname = None
+        lineno = 0
+        e = None                                  # None, or an exception
+        for line in file:
+            # comment or blank line?
+            if line.strip() == '': # or line[0] in '#;':
+                if cursect is None:
+                    cursect = IniSection(self, None, lineno)
+                    self.m_sections.append(cursect)
+                cursect.appendRaw(lineno, line.rstrip('\n'), None, None, None, False)
+                lineno = lineno + 1
+                optname = None
+                continue
+            # continuation line?
+            if False and line[0].isspace() and cursect is not None and optname:
+                value = line.strip()
+                if value:
+                    inival = cursect._getLast(optname)
+                    inival.value = "%s\n%s" % (inival.value, value)
+            # a section header or option header?
+            else:
+                line = line.rstrip('\n')
+                # is it a section header?
+                mo = self.SECTCRE.match(line)
+                if mo:
+                    sectname = mo.group('header')
+                    cursect = self._getSection(sectname)
+                    if cursect is None:
+                        cursect = IniSection(self, sectname, lineno, line)
+                        self.m_sections.append(cursect)
+                    # So sections can't start with a continuation line
+                    optname = None
+                else:
+                    if cursect is None:
+                        cursect = IniSection(self, None, lineno)
+                        self.m_sections.append(cursect)
+                    mo = self.OPTCRE.match(line)
+                    if mo:
+                        try:
+                            disabled = mo.group('disabled')
+                            if len(disabled) > 0:
+                                disabled = True
+                            else:
+                                disabled = False
+                        except IndexError:
+                            disabled = False
+                        optname, vi, optval = mo.group('option', 'vi', 'value')
+
+                        if keyValueSeperator is None:
+                            keyValueSeperator = vi
+                            #print('got keyValueSeperator : \'' + keyValueSeperator + '\'')
+                            gotValue = True
+                        elif vi == keyValueSeperator:
+                            gotValue = True
+                        else:
+                            #print('keyValueSeperator changed: \'' + keyValueSeperator + '\' to \'' + vi + '\'')
+                            #print('line: ' + line)
+                            gotValue = False
+                    else:
+                        gotValue = False
+
+                    if gotValue:
+                        if commentPrefix is None:
+                            # no comment char has yet been determined or specified,
+                            # so we should try to automatically detect the comment
+                            # char, which can either be a semi-colon or a hash char.
+                            # the comment char must be preceeded by a space char
+                            pos = optval.find(';')
+                            if pos != -1 and optval[pos-1].isspace():
+                                commentPrefix = ';'
+                            else:
+                                pos = optval.find('#')
+                                if pos != -1 and optval[pos-1].isspace():
+                                    commentPrefix = '#'
+
+                        if commentPrefix is not None:
+                            # ';' or '#' is a comment delimiter only if it follows
+                            # a spacing character
+                            pos = optval.find(commentPrefix)
+                            if pos != -1 and optval[pos-1].isspace():
+                                optval = optval[:pos]
+                                optcomment = optval[pos+1:]
+                            else:
+                                optcomment=None
+                        else:
+                            optcomment=None
+                        #print('commentPrefix=' + str(commentPrefix) + ' optcomment=' + str(optcomment))
+
+                        optval = optval.strip()
+                        if self.m_autoQuoteStrings:
+                            optval = unquote_string(optval)
+                        else:
+                            # allow empty values
+                            if optval == '""':
+                                optval = ''
+                        if self.m_autoEscapeStrings:
+                            optval = unescape_string_from_c(optval)
+                        optname = optname.rstrip()
+
+                        cursect.appendRaw(lineno, line, optname, optval, optcomment, disabled)
+                    else:
+                        #print('try to match comment for line: ' + line)
+                        mo = self.COMMENTRE.match(line)
+                        if mo:
+                            (commentchar, comment) = mo.group('commentchar', 'comment')
+                            if commentPrefix is None:
+                                commentPrefix = commentchar
+                            #print('found comment line: ' + comment)
+                            cursect.appendRaw(lineno, line, None, None, comment, False)
+                        else:
+                            cursect.appendRaw(lineno, line, None, None, None, False)
+                            #print 'unrecognized line:' + line
+            lineno = lineno + 1
+        if commentPrefix is not None:
+            self.m_commentPrefix = commentPrefix
+        else:
+            self.m_commentPrefix = ';'
+        if keyValueSeperator is not None:
+            self.m_keyValueSeperator = keyValueSeperator
+        else:
+            self.m_keyValueSeperator = '='
+
+    def get(self, section, key, default=''):
+        ret = default
+        section_obj = self._getSection(section)
+        if section_obj is not None:
+            ret = section_obj.get(key, default)
+        return ret
+
+    def getAsBoolean(self, section, key, default=None):
+        value = self.get(section, key, default)
+        if value is not None:
+            try:
+                num = int(value)
+                ret = True if num != 0 else False
+            except ValueError:
+                str = value.lower()
+                if str == 'true' or str == 'yes' or str == 'on':
+                    ret = True
+                elif str == 'false' or str == 'no' or str == 'off':
+                    ret = False
+                else:
+                    ret = default
+        else:
+            ret = default
+        return ret
+
+    def getAsInteger(self, section, key, default=None):
+        value = self.get(section, key, default)
+        if value is not None:
+            try:
+                ret = int(value)
+            except ValueError:
+                ret = default
+        else:
+            ret = default
+        return ret
+
+    def getAsArray(self, section, key, default=[]):
+        ret = default
+        section_obj = self._getSection(section)
+        if section_obj is not None:
+            ret = section_obj.getAsArray(key, default)
+        return ret
+
+    def getAsDateTime(self, section, key, default=None, date_format='%a, %d %b %Y %H:%M:%S %z'):
+        value = self.get(section, key, default)
+        if value is not None:
+            if isinstance(value, datetime.datetime):
+                ret = value
+            else:
+                try:
+                    ret = datetime.datetime.strptime(value)
+                except ValueError:
+                    ret = default
+        else:
+            ret = default
+        return ret
+
+    def getAsTimestamp(self, section, key, default=None):
+        value = self.get(section, key, default)
+        if value is not None:
+            if isinstance(value, datetime.datetime):
+                ret = value
+            else:
+                try:
+                    num = float(value)
+                    ret = datetime.datetime.fromtimestamp(num)
+                except ValueError:
+                    ret = default
+        else:
+            ret = default
+        return ret
+
+    def set(self, section, key, value, comment=None):
+        section_obj = self._getSection(section)
+        if section_obj is None:
+            self.m_sections.append( IniSection(self, section) )
+            section_obj = self._getSection(section)
+        return section_obj.set(key, value, comment)
+
+    def setAsBoolean(self, section, key, value, comment=None):
+        if value is not None:
+            real_value = 'true' if value else 'false'
+        else:
+            real_value = None
+        return self.set(section, key, real_value, comment)
+
+    def setAsInteger(self, section, key, value, comment=None):
+        if value is not None:
+            real_value = str(value)
+        else:
+            real_value = None
+        return self.set(section, key, real_value, comment)
+
+    def setAsDateTime(self, section, key, value, comment=None, date_format='%a, %d %b %Y %H:%M:%S %z'):
+        if value is not None:
+            if isinstance(value, datetime.datetime):
+                real_value = value.strftime(date_format)
+            elif isinstance(value, datetime.date):
+                tmp_value = datetime.datetime.combine(value, datetime.time.min)
+                real_value = tmp_value.strftime(date_format)
+            elif isinstance(value, datetime.time):
+                tmp_value = datetime.datetime.combine(datetime.date.min, value)
+                real_value = tmp_value.strftime(date_format)
+            else:
+                raise ValueError
+        else:
+            real_value = None
+        return self.set(section, key, real_value, comment)
+
+    def setAsTimestamp(self, section, key, value, comment=None):
+        if value is not None:
+            if isinstance(value, datetime.datetime):
+                real_value = timestamp_from_datetime(value)
+            elif isinstance(value, datetime.date):
+                tmp_value = datetime.datetime.combine(value, time.min)
+                real_value = timestamp_from_datetime(tmp_value)
+            elif isinstance(value, datetime.time):
+                real_value = value.time()
+            else:
+                raise ValueError
+        else:
+            real_value = None
+        return self.set(section, key, real_value, comment)
+
+    def append(self, section, key, value, comment=None):
+        section_obj = self._getSection(section)
+        if section_obj is None:
+            self.m_sections.append( IniSection(self, section) )
+            section_obj = self._getSection(section)
+        return section_obj.append(key, value, comment)
+
+    def remove(self, section, key):
+        ret = False
+        for section_obj in self.m_sections:
+            if section_obj.name == section:
+                if key == '*':
+                    self.m_sections.remove(section_obj)
+                    ret = True
+                else:
+                    ret = section_obj.remove(key)
+                break
+        return ret
+
+    def has_section(self, section):
+        section_obj = self._getSection(section)
+        return True if section_obj is not None else False
+
+    def section(self, section):
+        return self._getSection(section)
+
+    @property
+    def empty(self):
+        ret = True
+        for section_obj in self.m_sections:
+            if not section_obj.empty:
+                ret = False
+                break
+        return ret
+
+    @property
+    def sections(self):
+        ret = []
+        for section_obj in self.m_sections:
+            ret.append(section_obj.name)
+        return ret
+
+    @property
+    def comments(self):
+        ret = []
+        for section_obj in self.m_sections:
+            ret.extend(section_obj.comments)
+        return ret
+
+    def replace_comment(self, comment, new_comment):
+        ret = False
+        for section_obj in iter(self.m_sections):
+            if section_obj.replace_comment(comment, new_comment):
+                ret = True
+        return ret
+
+    def __str__(self):
+        return self.asString(only_data=False)
+
+    def asString(self, only_data=False):
+        ret = ''
+        for section in self.m_sections:
+            ret += section.asString(only_data=only_data)
+        return ret
+
+    def save(self, filename=None):
+        if filename is None:
+            filename = self.m_filename
+
+        if hasattr(filename, 'write'):
+            f = filename
+        else:
+            try:
+                f = open(filename, 'w')
+            except IOError as e:
+                self.m_last_error = e
+                f = None
+        if f:
+            try:
+                for section in self.m_sections:
+                    f.write(str(section))
+                ret = True
+            except IOError as e:
+                self.m_last_error = e
+                ret = False
+            if not hasattr(filename, 'write'):
+                f.close()
+        else:
+            ret = False
+        return ret
+
+    def merge(self, another_inifile):
+        ret = True
+        #print('merge ' + another_inifile.m_filename + ' into ' + self.m_filename)
+        #print(another_inifile.m_sections)
+        for section_obj in another_inifile.m_sections:
+            my_section_obj = self._getSection(section_obj.name)
+            if my_section_obj is None:
+                #print('create new section ' + section_obj.name)
+                self.m_sections.append( IniSection(self, section_obj.name) )
+                my_section_obj = self._getSection(section_obj.name)
+            ret = my_section_obj.merge(section_obj)
+            if not ret:
+                break
+        return ret
+
+    def replace(self, another_inifile):
+        ret = True
+        for section_obj in another_inifile.m_sections:
+            my_section_obj = self._getSection(section_obj.name)
+            #print('replace section ' + str(section_obj.name))
+            if my_section_obj is not None:
+                my_section_obj.clear()
+            else:
+                # add a new section because it's missing
+                self.m_sections.append( IniSection(self, section_obj.name) )
+                my_section_obj = self._getSection(section_obj.name)
+            ret = my_section_obj.merge(section_obj)
+            if not ret:
+                break
+        return ret
+
+
+class IniFileDirectory(object):
+
+    def __init__(self, directory=None, config_extension=None,
+                 commentPrefix=None, keyValueSeperator=None, disabled_values=True, keyIsWord=True, autoQuoteStrings=False):
+        self.directory = directory
+        self.config_extension = config_extension
+        self.commentPrefix = commentPrefix
+        self.keyValueSeperator = keyValueSeperator
+        self.disabled_values = disabled_values
+        self.keyIsWord = keyIsWord
+        self.autoQuoteStrings = autoQuoteStrings
+        if self.directory is not None:
+            self._load()
+        else:
+            self._items = []
+
+    def _load(self):
+        # load the the config files in the directory
+        try:
+            self._items = []
+            ret = True
+            files = os.listdir(self.directory)
+            for f in files:
+                if self.config_extension is None:
+                    load_file = True
+                else:
+                    (basename, ext) = os.path.splitext(f)
+                    load_file = True if ext == self.config_extension else False
+                if load_file:
+                    fullpath = os.path.join(self.directory, f)
+                    item = IniFile(fullpath,
+                                   commentPrefix=self.commentPrefix,
+                                   keyValueSeperator=self.keyValueSeperator,
+                                   disabled_values=self.disabled_values,
+                                   keyIsWord=self.keyIsWord,
+                                   autoQuoteStrings=self.autoQuoteStrings)
+                    self._items.append(item)
+        except (IOError, OSError) as e:
+            self._last_error = str(e)
+            ret = False
+
+        return ret
+
+    @property
+    def empty(self):
+        ret = True
+        for item in self._items:
+            if not item.empty:
+                ret = False
+                break
+        return ret
+
+    @property
+    def sections(self):
+        ret = []
+        for item in self._items:
+            ret.extend(item.sections)
+        return ret
+
+    @property
+    def comments(self):
+        ret = []
+        for item in self._items:
+            ret.extend(item.comments)
+        return ret
+
+    @property
+    def items(self):
+        return self._items
+
+    def getAsArray(self, section, key, default=[]):
+        ret = []
+        got_one_value = False
+        for item in self._items:
+            item_ret = item.getAsArray(section, key, None)
+            if item_ret:
+                got_one_value = True
+                ret.extend(item_ret)
+        if got_one_value:
+            return ret
+        else:
+            return default
+
+def which(name, flags=os.X_OK, only_first=False):
+    """Search PATH for executable files with the given name.
+
+    On newer versions of MS-Windows, the PATHEXT environment variable will be
+    set to the list of file extensions for files considered executable. This
+    will normally include things like ".EXE". This fuction will also find files
+    with the given name ending with any of these extensions.
+    On MS-Windows the only flag that has any meaning is os.F_OK. Any other
+    flags will be ignored.
+
+    @type name: C{str}
+    @param name: The name for which to search.
+
+    @type flags: C{int}
+    @param flags: Arguments to L{os.access}.
+
+    @rtype: C{list}
+    @param: A list of the full paths to files found, in the
+    order in which they were found.
+    """
+    result = []
+    exts = filter(None, os.environ.get('PATHEXT', '').split(os.pathsep))
+    path = os.environ.get('PATH', None)
+    if path is None:
+        if only_first:
+            return None
+        else:
+            return []
+    for p in os.environ.get('PATH', '').split(os.pathsep):
+        p = os.path.join(p, name)
+        if os.access(p, flags):
+            result.append(p)
+        for e in exts:
+            pext = p + e
+            if os.access(pext, flags):
+                result.append(pext)
+    if only_first:
+        return result[0] if result else None
+    else:
+        return result
+
+def runcmdAndGetData(args=[], script=None, verbose=False, outputStdErr=False, outputStdOut=False,
+                     executable=None, shell='/bin/sh',
+                     stdin=None, stdout=None, stderr=None, stderr_to_stdout=False, input=None, cwd=None, env=None,
+                     runAsUser=None, su='/bin/su'):
+
+    script_tmpfile = None
+    if script is None:
+        if args:
+            if runAsUser is None:
+                all_args = args
+            else:
+                all_args = [su, '-s', shell, '-', str(runAsUser), '-c', ' '.join(args)]
+        else:
+            raise ValueError('neither commandline nor script specified.')
+    else:
+        try:
+            script_tmpfile = tempfile.NamedTemporaryFile()
+            script_tmpfile.write(script.encode())
+        except IOError:
+            script_tmpfile = None
+
+        all_args = [str(shell)]
+        all_args.append(script_tmpfile.name)
+
+    if input is not None:
+        stdin_param = subprocess.PIPE
+    else:
+        stdin_param = stdin if stdin is not None else subprocess.PIPE
+    if stdout is not None and hasattr(stdout, '__call__'):
+        stdout_param = subprocess.PIPE
+    else:
+        stdout_param = stdout if stdout is not None else subprocess.PIPE
+    if stderr_to_stdout:
+        stderr_param = subprocess.STDOUT
+    else:
+        if stdout is not None and hasattr(stdout, '__call__'):
+            stderr_param = subprocess.PIPE
+        else:
+            stderr_param = stdout if stdout is not None else subprocess.PIPE
+    if verbose:
+        print("runcmd " + ' '.join(all_args) +
+                ' 0<%s 1>%s 2>%s' % (stdin_param, stdout_param, stderr_param)
+                    )
+
+    p = subprocess.Popen(all_args, executable=executable, stdout=stdout_param, stderr=stderr_param, stdin=stdin_param, shell=False, cwd=cwd, env=env)
+    if p:
+        if stdout is not None and hasattr(stdout, '__call__'):
+            encoding = 'CP1252' if platform.system() == 'Windows' else 'utf-8'
+            while True:
+                line = ""
+                try:
+                    line = p.stdout.readline()
+                except Exception:
+                    pass
+                try:
+                    line = line.decode(encoding)
+                except:
+                    continue
+                if not line:
+                    break
+                line = line.rstrip('\n\r')
+                stdout(line)
+            sts = p.wait()
+            stdoutdata = None
+            stderrdata = None
+        else:
+            if input:
+                (stdoutdata, stderrdata) = p.communicate(input.encode())
+            else:
+                (stdoutdata, stderrdata) = p.communicate()
+            if stdoutdata is not None and outputStdOut:
+                if int(python_major) < 3: # check for version < 3
+                    sys.stdout.write(stdoutdata)
+                    sys.stdout.flush()
+                else:
+                    sys.stdout.buffer.write(stdoutdata)
+                    sys.stdout.buffer.flush()
+            if stderrdata is not None and outputStdErr:
+                if int(python_major) < 3: # check for version < 3
+                    sys.stderr.write(stderrdata)
+                    sys.stderr.flush()
+                else:
+                    sys.stderr.buffer.write(stderrdata)
+                    sys.stderr.buffer.flush()
+            sts = p.returncode
+    else:
+        sts = -1
+        stdoutdata = None
+        stderrdata = None
+    return (sts, stdoutdata, stderrdata)
+
+class TracAdmin(object):
+    def __init__(self, tracenv, trac_admin_bin=None, verbose=False):
+        self._tracenv = tracenv
+
+        if trac_admin_bin is None:
+            self._trac_admin_bin = which('trac-admin', only_first=True)
+        else:
+            self._trac_admin_bin = trac_admin_bin
+        self._last_error = None
+        self._verbose = verbose
+        self._trac_config = None
+        self._plugin_info = None
+        self._repository_manager = None
+        self._db_repository_provider = None
+        self._env = None
+
+    def reinitialize(self):
+        self._last_error = None
+        self._trac_config = None
+        self._plugin_info = None
+        self._repository_manager = None
+        self._db_repository_provider = None
+        self._env = None
+
+    @property
+    def last_error(self):
+        return self._last_error
+
+    @property
+    def verbose(self):
+        return self._verbose
+
+    @property
+    def valid(self):
+        self._init_env()
+        return True if self._env else False
+
+    def _run_trac_admin(self, args):
+        self._last_error = None
+        cmd_args = [self._trac_admin_bin, self._tracenv]
+        cmd_args.extend(args)
+        (sts, stdoutdata, stderrdata) = runcmdAndGetData(cmd_args, verbose=self._verbose)
+        self._last_error = stderrdata
+        if sts == 0:
+            return True
+        else:
+            return False
+
+    def initenv(self, project_name, database, repository_path=None, repository_type='svn'):
+        # 'mysql://' + dbuser + ':' + dbpassword + '@' + self._mysql_server + '/' + dbname
+        args = ['initenv', project_name, database]
+        if repository_path is not None:
+            args.append(repository_type)
+            args.append(repository_path)
+        return self._run_trac_admin(args)
+
+    def upgrade(self, backup=True):
+        if not self._check_config_access(read_only=False):
+            return False
+        args = ['upgrade']
+        if backup == False:
+            args.append('--no-backup')
+        return self._run_trac_admin(args)
+
+    def hotcopy(self, dest_dir, include_database=True):
+        if not self._check_config_access(read_only=True):
+            return False
+        args = ['hotcopy']
+        args.append(dest_dir)
+        if not include_database:
+            args.append('--no-database')
+        return self._run_trac_admin(args)
+
+    def _init_env(self):
+        if self._env is None:
+            from trac.core import TracError
+            try:
+                from trac.env import Environment
+                self._env = Environment(self._tracenv)
+            except TracError as e:
+                self._env = None
+                self._last_error = str(e)
+            except IOError as e:
+                self._env = None
+                self._last_error = str(e)
+
+    def _check_config_access(self, read_only=True):
+        ret = True
+        if self._tracenv:
+            trac_ini = os.path.join(self._tracenv, 'conf', 'trac.ini')
+            if read_only:
+                if not os.access(trac_ini, os.R_OK):
+                    self._last_error = str(PermissionError('Unable to read %s.' % trac_ini))
+                    ret = False
+            else:
+                if not os.access(trac_ini, os.W_OK):
+                    self._last_error = str(PermissionError('Unable to write %s.' % trac_ini))
+                    ret = False
+        return ret
+
+    def _retrieve_plugin_info(self):
+        if self._plugin_info is None:
+            self._init_env()
+            try:
+                from trac.loader import get_plugin_info, get_plugins_dir
+                self._plugin_info = get_plugin_info(self._env)
+            except:
+                self._plugin_info = []
+                
+    def _retrieve_repository_manager(self):
+        if self._repository_manager is None:
+            self._init_env()
+            try:
+                from trac.versioncontrol import RepositoryManager
+                self._repository_manager = RepositoryManager(self._env)
+            except:
+                self._repository_manager = []
+
+    def _retrieve_db_repository_provider(self):
+        if self._db_repository_provider is None:
+            self._init_env()
+            try:
+                from trac.versioncontrol import DbRepositoryProvider
+                self._db_repository_provider = DbRepositoryProvider(self._env)
+            except:
+                self._db_repository_provider = []
+
+    @property
+    def plugins(self):
+        self._retrieve_plugin_info()
+        ret = []
+        for p in self._plugin_info:
+            ret.append(p['name'])
+        return ret
+    
+    def get_plugin_info(self, plugin):
+        self._retrieve_plugin_info()
+        for p in self._plugin_info:
+            if p['name'] == plugin:
+                return p
+        return None
+        
+    def get_plugin_components(self, plugin):
+        self._retrieve_plugin_info()
+        for p in self._plugin_info:
+            if p['name'] == plugin:
+                ret = []
+                for (name, m) in list(p['modules'].items()):
+                    for (compname, compdetails) in list(m['components'].items()):
+                        ret.append(compdetails['full_name'])
+                return ret
+        return None
+        
+    @property
+    def configured_components(self):
+        self._init_env()
+        ret = []
+        if self._env:
+            for (k, v) in self._env.config.options('components'):
+                ret.append( (k,v) )
+        return ret
+        
+    def set_configured_components(self, components):
+        self._init_env()
+        if self._env:
+            for (k, v) in self._env.config.options('components'):
+                self._env.config.remove('components', k)
+            for (k, v) in components:
+                self._env.config.set('components', k, v)
+
+    @property
+    def database(self):
+        self._init_env()
+        if self._env:
+            return self._env.config.get('trac', 'database', None)
+        else:
+            return None
+
+    def set_database(self, database):
+        self._init_env()
+        if self._env:
+            return self._env.config.set('trac', 'database', database)
+        else:
+            return None
+
+    @property
+    def database_type(self):
+        db = self.database
+        if db:
+            return db.split(':')[0]
+        else:
+            return None
+
+    @property
+    def database_file(self):
+        db = self.database
+        if db:
+            elem = db.split(':')
+            if elem[0] == 'sqlite':
+                return os.path.join(self._tracenv, elem[1])
+            else:
+                return None
+        else:
+            return None
+
+    @property
+    def repositories(self):
+        ret = []
+        self._retrieve_db_repository_provider()
+        if self._db_repository_provider:
+            ret = self._db_repository_provider.get_repositories()
+        return ret
+    
+    @property
+    def supported_repository_types(self):
+        self._retrieve_repository_manager()
+        ret = []
+        if self._repository_manager:
+            ret = self._repository_manager.get_supported_types()
+        return ret
+
+    def get_repository(self, reponame):
+        self._retrieve_repository_manager()
+        if self._repository_manager:
+            return self._repository_manager.get_repository(reponame)
+        else:
+            return None
+
+    def sync_repository(self, reponame, rev_callback=None, clean=False):
+        ret = False
+        self._retrieve_repository_manager()
+        if self._repository_manager:
+            from trac.core import TracError
+            try:
+                repo = self._repository_manager.get_repository(reponame)
+                if repo:
+                    repo.sync(rev_callback=rev_callback, clean=clean)
+                    ret = True
+                else:
+                    ret = False
+            except TracError as e:
+                self._last_error = str(e)
+        return ret
+
+    def add_repository(self, reponame, path, repotype):
+        ret = False
+        self._retrieve_db_repository_provider()
+        if self._db_repository_provider:
+            from trac.core import TracError
+            try:
+                self._db_repository_provider.add_repository(reponame, path, repotype)
+                ret = True
+            except TracError as e:
+                self._last_error = str(e)
+        return ret
+
+    def remove_repository(self, reponame):
+        ret = False
+        self._retrieve_db_repository_provider()
+        if self._db_repository_provider:
+            from trac.core import TracError
+            try:
+                self._db_repository_provider.remove_repository(reponame)
+                ret = True
+            except TracError as e:
+                self._last_error = str(e)
+        return ret
+
+    def modify_repository(self, reponame, changes):
+        ret = False
+        self._retrieve_db_repository_provider()
+        if self._db_repository_provider:
+            from trac.core import TracError
+            try:
+                self._db_repository_provider.modify_repository(reponame, changes)
+                ret = True
+            except TracError as e:
+                self._last_error = str(e)
+        return ret
+    
+    def add_repository_alias(self, reponame, target):
+        ret = False
+        self._retrieve_db_repository_provider()
+        if self._db_repository_provider:
+            from trac.core import TracError
+            try:
+                self._db_repository_provider.add_alias(reponame, target)
+                ret = True
+            except TracError as e:
+                self._last_error = str(e)
+        return ret
+
+    def set_logging(self, logfile='trac.log', level='DEBUG', logtype='file'):
+        self._init_env()
+        self._env.config.set('logging', 'log_file', logfile)
+        self._env.config.set('logging', 'log_level', level)
+        self._env.config.set('logging', 'log_type', logtype)
+
+    def enable_component(self, component):
+        self._init_env()
+        self._env.enable_component(component)
+        self._env.config.set('components', component, 'enabled')
+        
+    def disable_component(self, component):
+        self._init_env()
+        self._env.config.set('components', component, 'disabled')
+
+    def enable_plugin(self, plugin):
+        plugin_components = self.get_plugin_components(plugin)
+        if plugin_components is not None:
+            for comp in plugin_components:
+                if self._verbose:
+                    print('enable ' + comp)
+                self._env.enable_component(comp)
+                self._env.config.set('components', comp, 'enabled')
+            ret = True
+        else:
+            ret = False
+        return ret
+
+    def save_config(self):
+        """Try to save the config, and display either a success notice or a
+        failure warning.
+        """
+        self._last_error = None
+        try:
+            if self._env:
+                self._env.config.save()
+            ret = True
+        except Exception as e:
+            self._last_error = 'Error writing to trac.ini: ' + exception_to_unicode(e)
+            ret = False
+        return ret
+    
+    @property
+    def config_filename(self):
+        return os.path.join(self._tracenv, 'conf/trac.ini')
+
+class trac_manage(object):
+
+    def __init__(self):
+        self._last_error = None
+        self._trac = None
+
+    def _load_tracenv(self, tracenv):
+        self._trac = TracAdmin(tracenv)
+        if self._trac.valid:
+            ret = True
+        else:
+            self._last_error = self._trac.last_error
+            ret = False
+        return ret
+
+    def _enable_svn(self):
+        self._trac.enable_component('tracopt.versioncontrol.svn.svn_fs.*')
+        self._trac.enable_component('tracopt.versioncontrol.svn.svn_prop.*')
+        self._trac.save_config()
+        self._trac.reinitialize()
+
+    def _enable_git(self):
+        self._trac.enable_component('tracopt.versioncontrol.git.git_fs.*')
+        self._trac.save_config()
+        self._trac.reinitialize()
+
+    def main(self, argv=None):
+        if argv is None:
+            argv = sys.argv
+
+        #=============================================================================================
+        # process command line
+        #=============================================================================================
+        parser = argparse.ArgumentParser(description='manage a Trac instance')
+        parser.add_argument('tracenv', help='trac environment', metavar='tracenv')
+        parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', help='enable verbose output of this script.')
+        parser.add_argument('--list-repos', dest='action_list_repos', action='store_true', help='list all configured repositories.')
+        parser.add_argument('--config-repos', nargs=1, dest='action_config_repos', help='configures the repositories from the given file or directory.')
+        parser.add_argument('--sync-repos', nargs='*', dest='action_sync_repos', help='synchronize the specified repositories.')
+        parser.add_argument('--sync-all-repos', dest='action_sync_all_repos', action='store_true', help='synchronize all configured repositories.')
+        parser.add_argument('--resync-repos', nargs='*', dest='action_resync_repos', help='re-synchronize all configured repositories or the specified ones.')
+
+        args = parser.parse_args()
+        self._verbose = args.verbose
+
+        if not self._load_tracenv(args.tracenv):
+            sys.stderr.write('Failed to load trac environment ' + args.tracenv + ', error ' + str(self._last_error) + '\n')
+            return 1
+
+        if args.action_list_repos:
+            for (reponame, repoprops) in self._trac.repositories:
+                repodir = repoprops['dir'] if 'dir' in repoprops else 'unknown'
+                repotype = repoprops['type'] if 'type' in repoprops else 'unknown'
+                repoalias = repoprops['alias'] if 'alias' in repoprops else None
+                if reponame == '':
+                    reponame = '(default)'
+                if repoalias:
+                    print('%s: alias for %s' %(reponame, repoalias))
+                else:
+                    print('%s: %s (%s)' %(reponame, repodir, repotype))
+            ret = True
+        elif args.action_config_repos:
+            supported_repository_types = self._trac.supported_repository_types
+            repos_to_remove = {}
+            for (reponame, repoprops) in self._trac.repositories:
+                repos_to_remove[reponame] = repoprops
+
+            repo_base_path = None
+            repo_configfile = args.action_config_repos[0]
+            if os.path.isdir(repo_configfile):
+                repo_base_path = repo_configfile
+                project_name = os.getenv('TRAC_PROJECT_NAME', None)
+                if project_name is not None:
+                    project_name = project_name.replace(' ', '_').lower()
+                    project_repo_configfile = os.path.join(repo_configfile, project_name + '.ini')
+                    if os.path.isfile(project_repo_configfile):
+                        repo_configfile = project_repo_configfile
+
+            if os.path.isfile(repo_configfile):
+                inifile = IniFile(commentPrefix='#', keyValueSeperator='=', disabled_values=False)
+                if not inifile.open(repo_configfile):
+                    print('Failed to open %s' % repo_configfile)
+                    ret = False
+                else:
+
+                    result = True
+                    for section in inifile.sections:
+                        reponame = inifile.get(section, 'name', None)
+                        repopath = inifile.get(section, 'path', None)
+                        repotype = inifile.get(section, 'type', 'git')
+                        repoalias = inifile.get(section, 'alias', None)
+                        repodesc = inifile.get(section, 'description', None)
+
+                        if reponame is None:
+                            continue
+                        elif reponame == '(default)':
+                            reponame = ''
+
+                        if repoalias is not None:
+                            pass
+                        elif repopath is None or repotype is None:
+                            continue
+
+                        if not os.path.isabs(repopath):
+                            repopath = os.path.join(repo_base_path, repopath)
+
+                        if repoalias:
+                            if reponame in repos_to_remove:
+                                # repo already exists, so check if we need to modify it
+                                current_props = repos_to_remove[reponame]
+                                del repos_to_remove[reponame]
+                                if repoalias != current_props['alias']:
+                                    changes = {'alias':repoalias}
+                                    result = self._trac.modify_repository(reponame, changes)
+                                else:
+                                    result = True
+                            else:
+                                result = self._trac.add_repository_alias(reponame, repoalias)
+                                if not result:
+                                    print('Failed to modify repository %s, error %s' % (reponame, self._trac.last_error))
+                        else:
+                            if repotype not in supported_repository_types:
+                                if repotype == 'svn':
+                                    self._enable_svn()
+                                    supported_repository_types = self._trac.supported_repository_types
+                                elif repotype == 'git':
+                                    self._enable_git()
+                                    supported_repository_types = self._trac.supported_repository_types
+                                else:
+                                    print('Repository type %s of repository %s is not supported (only %s is supported).' %
+                                        (repotype, reponame, ','.join(supported_repository_types)))
+                            changes = {}
+                            if reponame in repos_to_remove:
+                                # repo already exists, so check if we need to modify it
+                                current_props = repos_to_remove[reponame]
+                                del repos_to_remove[reponame]
+
+                                if 'description' in current_props:
+                                    if current_props['description'] != repodesc:
+                                        changes['description'] = repodesc
+                                if 'type' in current_props:
+                                    if current_props['type'] != repotype:
+                                        changes['type'] = repotype
+                                if 'dir' in current_props:
+                                    if current_props['dir'] != repopath:
+                                        changes['dir'] = repopath
+                                result = True
+                            else:
+                                result = self._trac.add_repository(reponame, repopath, repotype)
+                                if result:
+                                    if repodesc is not None and len(repodesc) != 0:
+                                        changes['description'] = repodesc
+                            if result:
+                                if len(changes) != 0:
+                                    print('modify repository %s changes=%s' % (reponame, str(changes)))
+                                    result = self._trac.modify_repository(reponame, changes)
+                                    if not result:
+                                        print('Failed to modify repository %s, error %s' % (reponame, self._trac.last_error))
+                            else:
+                                print('Failed to add repository %s, error %s' % (reponame, self._trac.last_error))
+                        if not result:
+                            break
+
+                    inifile.close()
+            elif os.path.isdir(repo_configfile):
+
+                result = True
+                cfgdir = repo_configfile
+                for f in os.listdir(cfgdir):
+                    full = os.path.join(cfgdir, f)
+
+                    if f.endswith('.git') and os.path.isdir(full):
+
+                        reponame = f[:-4]
+                        repopath = full
+                        repotype = 'git'
+
+                        changes = {}
+                        if reponame in repos_to_remove:
+                            # repo already exists, so check if we need to modify it
+                            current_props = repos_to_remove[reponame]
+                            del repos_to_remove[reponame]
+                        else:
+                            result = self._trac.add_repository(reponame, repopath, repotype)
+
+
+            if result:
+                for reponame in repos_to_remove.iterkeys():
+                    print('remove repository %s' % (reponame))
+                    if not self._trac.remove_repository(reponame):
+                        print('Failed to remove repository %s, error %s' % (reponame, self._trac.last_error))
+                        result = False
+                        break
+            ret = True if result else False
+        elif args.action_sync_repos is not None or args.action_resync_repos is not None or args.action_sync_all_repos:
+            resync = True if args.action_resync_repos is not None else False
+            if args.action_sync_all_repos:
+                action_args = []
+            else:
+                action_args = args.action_resync_repos if resync else args.action_sync_repos
+
+            selected_repos = set()
+            if len(action_args) == 0:
+                # sync all
+                for (reponame, repoprops) in self._trac.repositories:
+                    selected_repos.add(reponame)
+            else:
+                for reponame in action_args:
+                    selected_repos.add(reponame)
+            ret = True
+            for reponame in selected_repos:
+                if not self._trac.sync_repository(reponame, clean=True if resync else False):
+                    print('Failed to %s repository %s, error %s' % ('re-sync' if resync else 'sync', reponame, self._trac.last_error))
+                    ret = False
+        else:
+            print('No action specified.')
+            ret = False
+
+        return 0 if ret else 1
+
+if __name__ == "__main__":
+    app =  trac_manage()
+    sys.exit(app.main())
+

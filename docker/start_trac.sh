@@ -30,6 +30,9 @@ function upgrade() {
         trac-ini "$trac_env/conf/trac.ini" "components" "mastertickets.*" "enabled"
         trac-ini "$trac_env/conf/trac.ini" "components" "tracrpc.*" "enabled"
         trac-ini "$trac_env/conf/trac.ini" "components" "arsoft.trac.plugins.commitupdater.commit_updater.*" "enabled"
+
+        trac-ini "$trac_env/conf/trac.ini" "components" "tracopt.versioncontrol.git.git_fs.*" "enabled"
+
     fi
 
     if [ $upgrade_ok -eq 0 ]; then
@@ -50,10 +53,16 @@ function upgrade() {
 
     # Apply the latest configuration from Docker
     trac-ini "$trac_env/conf/trac.ini" "trac" "base_url" "${TRAC_BASE_URL}"
+    # enable Nginx sendfile support
+    trac-ini "$trac_env/conf/trac.ini" "trac" "xsendfile_header" "X-Accel-Redirect"
+    trac-ini "$trac_env/conf/trac.ini" "trac" "repository_sync_per_request" "disabled"
+    trac-ini "$trac_env/conf/trac.ini" "versioncontrol" "default_repository_type" "git"
+    trac-ini "$trac_env/conf/trac.ini" "git" "cached_repository" "enabled"
+
     trac-ini "$trac_env/conf/trac.ini" "project" "name" "${TRAC_PROJECT_NAME}"
     trac-ini "$trac_env/conf/trac.ini" "project" "descr" "${TRAC_PROJECT_DESCRIPTION}"
     trac-ini "$trac_env/conf/trac.ini" "project" "url" "${TRAC_BASE_URL}"
-    trac-ini "$trac_env/conf/trac.ini" "project" "url" "${TRAC_PROJECT_ADMIN}"
+    trac-ini "$trac_env/conf/trac.ini" "project" "admin" "${TRAC_PROJECT_ADMIN}"
 
     if [ $upgrade_ok -eq 0 ]; then
         echo "Upgrade of $trac_env complete"
@@ -85,10 +94,20 @@ function initenv() {
     if [ $init_ok -eq 0 ]; then
         echo "Initialize of $trac_env complete"
     else
-        rm -rf "$trac_env"
+        rm -rf "$trac_env"/*
         echo "Failed to initialize $trac_env" 1>&2
     fi
     return $init_ok
+}
+
+function manage_repositories() {
+    set -x
+    echo "Setup repositories from ${TRAC_REPO_DIR}"
+    trac-manage --config-repos "${TRAC_REPO_DIR}" "$trac_env"
+    echo "Sync all repositories"
+    trac-manage --sync-all-repos "$trac_env"
+    chown "$trac_user" -R "${TRAC_REPO_DIR}"
+    set +x
 }
 
 if [ $clear_env -ne 0 ]; then
@@ -102,6 +121,11 @@ fi
 
 chown "$trac_user:nogroup" -R "$trac_env"
 upgrade || exit $?
+
+manage_repositories || exit $?
+
+trac_uid=`id -u "$trac_user"`
+echo "Run trac as using $trac_user/$trac_uid"
 
 if [ $gunicorn_debug -ne 0 ]; then
     gunicorn_opts="$gunicorn_opts -R --capture-output --log-level=DEBUG"
