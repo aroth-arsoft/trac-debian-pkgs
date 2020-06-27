@@ -33,7 +33,7 @@ function upgrade() {
     fi
 
     if [ $upgrade_ok -eq 0 ]; then
-        su -s /bin/sh -c "trac-admin \"$trac_env\" upgrade" "$trac_user" || upgrade_ok=1
+        su -s /bin/sh -c "trac-admin \"$trac_env\" upgrade --no-backup" "$trac_user" || upgrade_ok=1
         su -s /bin/sh -c "trac-admin \"$trac_env\" wiki upgrade" "$trac_user" || upgrade_ok=1
     fi
 
@@ -43,15 +43,22 @@ function upgrade() {
         if [ -d "$trac_env/tmp/deploy/htdocs" ]; then
             cp -a "$trac_env/tmp/deploy/htdocs"/* "$trac_env/htdocs"
         else
-            echo "Deploy of $trac_env failed"
+            echo "Deploy of $trac_env failed" 1>&2
         fi
         test -d "$trac_env/tmp/deploy" && rm -rf "$trac_env/tmp/deploy"
     fi
 
+    # Apply the latest configuration from Docker
+    trac-ini "$trac_env/conf/trac.ini" "trac" "base_url" "${TRAC_BASE_URL}"
+    trac-ini "$trac_env/conf/trac.ini" "project" "name" "${TRAC_PROJECT_NAME}"
+    trac-ini "$trac_env/conf/trac.ini" "project" "descr" "${TRAC_PROJECT_DESCRIPTION}"
+    trac-ini "$trac_env/conf/trac.ini" "project" "url" "${TRAC_BASE_URL}"
+    trac-ini "$trac_env/conf/trac.ini" "project" "url" "${TRAC_PROJECT_ADMIN}"
+
     if [ $upgrade_ok -eq 0 ]; then
         echo "Upgrade of $trac_env complete"
     else
-        echo "Failed to upgrade $trac_env"
+        echo "Failed to upgrade $trac_env" 1>&2
     fi
 
     cat << EOF > /bin/run-trac-admin
@@ -63,16 +70,23 @@ EOF
 }
 
 function initenv() {
-    local init_args="example sqlite:db/trac.db"
     local init_ok=0
-    [ ! -d "$trac_env" ] && mkdir "$trac_env"
-    chown "$trac_user:nogroup" -R "$trac_env" || init_ok=1
-    su -s /bin/sh -c "trac-admin \"$trac_env\" initenv $init_args" "$trac_user" || init_ok=1
+    if [ ! -d "$trac_env" ]; then
+        mkdir "$trac_env"
+    fi
+    if [ ! -d "$trac_env" ]; then
+        echo "Failed to create directory $trac_env" 1>&2mkdir "$trac_env"
+        init_ok=1
+    else
+        chown "$trac_user:nogroup" -R "$trac_env" || init_ok=1
+        su -s /bin/sh -c "trac-admin \"$trac_env\" initenv \"${TRAC_PROJECT_NAME}\" \"${TRAC_DATABASE}\"" "$trac_user" || init_ok=1
+    fi
 
     if [ $init_ok -eq 0 ]; then
         echo "Initialize of $trac_env complete"
     else
-        echo "Failed to initialize $trac_env"
+        rm -rf "$trac_env"
+        echo "Failed to initialize $trac_env" 1>&2
     fi
     return $init_ok
 }
