@@ -3,8 +3,9 @@ script_file=`readlink -f "$0"`
 script_dir=`dirname "$script_file"`
 trac_env="$script_dir/env"
 trac_user='trac'
-gunicorn_num_workers=1
-gunicorn_debug=0
+gunicorn_num_workers=${GUNICORN_NUM_WORKERS:-2}
+gunicorn_num_threads=${GUNICORN_NUM_THREADS:-2}
+gunicorn_debug=${GUNICORN_DEBUG:-0}
 gunicorn_opts=''
 clear_env="${TRAC_CLEAR_ENV:-0}"
 
@@ -131,5 +132,5 @@ if [ $gunicorn_debug -ne 0 ]; then
     gunicorn_opts="$gunicorn_opts -R --capture-output --log-level=DEBUG"
 fi
 
-exec gunicorn -w${gunicorn_num_workers} $gunicorn_opts -b 0.0.0.0:8000 -n "trac" --user "$trac_user" --group "nogroup" --chdir "$script_dir" trac_wsgi:application
+exec gunicorn --workers=${gunicorn_num_workers} --threads=${gunicorn_num_threads} $gunicorn_opts -b 0.0.0.0:8000 --user "$trac_user" --group "nogroup" --chdir "$script_dir" trac_wsgi:application
 exit $?

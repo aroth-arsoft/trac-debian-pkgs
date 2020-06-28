@@ -6,9 +6,10 @@ LABEL maintainer="docker@fastprotect.net"
 
 ENV container=docker LANG=C.UTF-8
 ENV TRAC_VERSION="1.4"
+ENV GUNICORN_VERSION="19.10.0"
 
 RUN apk add --update-cache libxslt graphviz git && \
-    pip install gunicorn Trac>=${TRAC_VERSION} PyMySQL pytz Babel && \
+    pip install futures "gunicorn[gthread]>=${GUNICORN_VERSION}" "Trac>=${TRAC_VERSION}" PyMySQL pytz Babel && \
     rm -rf /root/.cache/ && \
     adduser -S -s /bin/sh trac
 
@@ -23,7 +24,8 @@ ENV TRAC_DATABASE="sqlite:db/trac.db" \
     TRAC_PROJECT_NAME="My Project" \
     TRAC_PROJECT_DESCRIPTION="My New Project" \
     TRAC_PROJECT_ADMIN="no-reply@example.com" \
-    TRAC_REPO_DIR="/git"
+    TRAC_REPO_DIR="/git" \
+    GUNICORN_DEBUG=0
 
 EXPOSE 8000
 CMD ["/bin/sh", "/home/trac/start_trac.sh"]
