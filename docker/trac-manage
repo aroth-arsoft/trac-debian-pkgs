@@ -1317,7 +1317,10 @@ class TracAdmin(object):
             try:
                 repo = self._repository_manager.get_repository(reponame)
                 if repo:
-                    repo.sync(rev_callback=rev_callback, clean=clean)
+                    if repo.__class__.__name__ == 'GitCachedRepository':
+                        repo.sync(feedback=rev_callback, clean=clean)
+                    else:
+                        repo.sync(rev_callback=rev_callback, clean=clean)
                     ret = True
                 else:
                     ret = False
