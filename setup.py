@@ -20,7 +20,7 @@ package_list = {
     'trac': {
         'package_name': 'Trac',
         'site': 'trac',
-        'version': '1.4.1',
+        'version': '1.4.2',
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac',
         'debian-revision': 'minor',
@@ -53,13 +53,13 @@ package_list = {
         'pkgrepo': 'git',
         'pkgrepo_dir': 'arsoft-trac-commitupdater',
     },
-    'arsoft-python': {
-        'package_name': 'arsoft-python',
-        'alias': 'arsoft-python',
-        'site': 'github-aroth-arsoft',
-        'pkgrepo': 'git',
-        'pkgrepo_dir': 'arsoft-python',
-    },
+#    'arsoft-python': {
+#        'package_name': 'arsoft-python',
+#        'alias': 'arsoft-python',
+#        'site': 'github-aroth-arsoft',
+#        'pkgrepo': 'git',
+#        'pkgrepo_dir': 'arsoft-python',
+#    },
     'AnnouncerPlugin':  {
         'package_name': 'TracAnnouncer',
         'alias': 'announcer',
@@ -1032,7 +1032,7 @@ pip wheel %s --wheel-dir /src $package
         alpine_tag = '2-alpine' if release == 'py2' else '3-alpine'
         tmpdir = tempfile.TemporaryDirectory()
 
-        for f in ['Dockerfile', 'start_trac.sh', 'trac-ini', 'trac_wsgi.py']:
+        for f in ['Dockerfile', 'start_trac.sh', 'trac-ini', 'trac-manage', 'trac_wsgi.py']:
             src = os.path.join(self._docker_dir, f)
             dst = os.path.join(tmpdir.name, f)
             shutil.copy2(src, dst)

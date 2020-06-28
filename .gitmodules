@@ -43,6 +43,3 @@
 [submodule "repo/arsoft-trac-commitupdater"]
 	path = repo/arsoft-trac-commitupdater
 	url = ../arsoft-trac-commitupdater.git
-[submodule "repo/arsoft-python"]
-	path = repo/arsoft-python
-	url = ../arsoft-python.git
