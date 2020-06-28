@@ -13,8 +13,7 @@ RUN apk add --update-cache libxslt graphviz git && \
     adduser -S -s /bin/sh trac
 
 ADD *.whl /tmp/
-RUN pip install /tmp/*.whl && \
-    rm /usr/local/bin/trac-manage
+RUN pip install /tmp/*.whl
 
 ADD trac-* /bin/
 ADD start_trac.sh trac_wsgi.py /home/trac/
