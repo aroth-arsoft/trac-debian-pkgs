@@ -54,6 +54,7 @@ function upgrade() {
 
     # Apply the latest configuration from Docker
     trac-ini "$trac_env/conf/trac.ini" "trac" "base_url" "${TRAC_BASE_URL}"
+    trac-ini "$trac_env/conf/trac.ini" "trac" "database" "${TRAC_DATABASE}"
     # enable Nginx sendfile support
     trac-ini "$trac_env/conf/trac.ini" "trac" "xsendfile_header" "X-Accel-Redirect"
     trac-ini "$trac_env/conf/trac.ini" "trac" "repository_sync_per_request" "disabled"
@@ -102,13 +103,25 @@ function initenv() {
 }
 
 function manage_repositories() {
+    local manage_ok=0
     set -x
     echo "Setup repositories from ${TRAC_REPO_DIR}"
-    trac-manage --config-repos "${TRAC_REPO_DIR}" "$trac_env"
+    trac-manage --config-repos "${TRAC_REPO_DIR}" "$trac_env" || manage_ok=1
     echo "Sync all repositories"
-    trac-manage --sync-all-repos "$trac_env"
-    chown "$trac_user" -R "${TRAC_REPO_DIR}"
+    trac-manage --sync-all-repos "$trac_env" || manage_ok=1
+    chown "$trac_user" -R "${TRAC_REPO_DIR}" || manage_ok=1
     set +x
+    return $manage_ok
+}
+
+function startup_failure() {
+    local RES=$?
+    if [ $# -ne 0 ]; then
+        echo "Startup failed with error code $RES at $*" 1>&2
+    else
+        echo "Startup failed with error code $RES" 1>&2
+    fi
+    exit $RES
 }
 
 if [ $clear_env -ne 0 ]; then
@@ -117,13 +130,13 @@ if [ $clear_env -ne 0 ]; then
 fi
 
 if [ ! -f "$trac_env/VERSION" ]; then
-    initenv || exit $?
+    initenv || startup_failure
 fi
 
 chown "$trac_user:nogroup" -R "$trac_env"
-upgrade || exit $?
+upgrade || startup_failure
 
-manage_repositories || exit $?
+manage_repositories || startup_failure
 
 trac_uid=`id -u "$trac_user"`
 echo "Run trac as using $trac_user/$trac_uid"

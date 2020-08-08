@@ -2,13 +2,13 @@
 # -*- coding: utf-8 -*-
 # kate: space-indent on; indent-width 4; mixedindent off; indent-mode python;
 
+from __future__ import print_function
 import sys
 import os
 import argparse
 import re
 import datetime
 import os
-
 
 def is_quoted_string(str):
     if len(str) > 1 and ((str[0] == '"' and str[-1] == '"') or (str[0] == '\'' and str[-1] == '\'')):
@@ -1422,6 +1422,10 @@ class TracAdmin(object):
     def config_filename(self):
         return os.path.join(self._tracenv, 'conf/trac.ini')
 
+EXIT_CODE_SUCCESS = 0
+EXIT_CODE_FAILURE = 1
+EXIT_CODE_DATABASE_FAILURE = 2
+
 class trac_manage(object):
 
     def __init__(self):
@@ -1471,176 +1475,186 @@ class trac_manage(object):
             sys.stderr.write('Failed to load trac environment ' + args.tracenv + ', error ' + str(self._last_error) + '\n')
             return 1
 
+        ret = EXIT_CODE_FAILURE
         if args.action_list_repos:
-            for (reponame, repoprops) in self._trac.repositories:
-                repodir = repoprops['dir'] if 'dir' in repoprops else 'unknown'
-                repotype = repoprops['type'] if 'type' in repoprops else 'unknown'
-                repoalias = repoprops['alias'] if 'alias' in repoprops else None
-                if reponame == '':
-                    reponame = '(default)'
-                if repoalias:
-                    print('%s: alias for %s' %(reponame, repoalias))
-                else:
-                    print('%s: %s (%s)' %(reponame, repodir, repotype))
-            ret = True
+            try:
+                for (reponame, repoprops) in self._trac.repositories:
+                    repodir = repoprops['dir'] if 'dir' in repoprops else 'unknown'
+                    repotype = repoprops['type'] if 'type' in repoprops else 'unknown'
+                    repoalias = repoprops['alias'] if 'alias' in repoprops else None
+                    if reponame == '':
+                        reponame = '(default)'
+                    if repoalias:
+                        print('%s: alias for %s' %(reponame, repoalias))
+                    else:
+                        print('%s: %s (%s)' %(reponame, repodir, repotype))
+                ret = EXIT_CODE_SUCCESS
+            except Exception as ex:
+                print('%s' % ex, file=sys.stderr)
         elif args.action_config_repos:
-            supported_repository_types = self._trac.supported_repository_types
-            repos_to_remove = {}
-            for (reponame, repoprops) in self._trac.repositories:
-                repos_to_remove[reponame] = repoprops
+            try:
+                supported_repository_types = self._trac.supported_repository_types
+                repos_to_remove = {}
+                for (reponame, repoprops) in self._trac.repositories:
+                    repos_to_remove[reponame] = repoprops
 
-            repo_base_path = None
-            repo_configfile = args.action_config_repos[0]
-            if os.path.isdir(repo_configfile):
-                repo_base_path = repo_configfile
-                project_name = os.getenv('TRAC_PROJECT_NAME', None)
-                if project_name is not None:
-                    project_name = project_name.replace(' ', '_').lower()
-                    project_repo_configfile = os.path.join(repo_configfile, project_name + '.ini')
-                    if os.path.isfile(project_repo_configfile):
-                        repo_configfile = project_repo_configfile
+                repo_base_path = None
+                repo_configfile = args.action_config_repos[0]
+                if os.path.isdir(repo_configfile):
+                    repo_base_path = repo_configfile
+                    project_name = os.getenv('TRAC_PROJECT_NAME', None)
+                    if project_name is not None:
+                        project_name = project_name.replace(' ', '_').lower()
+                        project_repo_configfile = os.path.join(repo_configfile, project_name + '.ini')
+                        if os.path.isfile(project_repo_configfile):
+                            repo_configfile = project_repo_configfile
 
-            if os.path.isfile(repo_configfile):
-                inifile = IniFile(commentPrefix='#', keyValueSeperator='=', disabled_values=False)
-                if not inifile.open(repo_configfile):
-                    print('Failed to open %s' % repo_configfile)
-                    ret = False
-                else:
+                if os.path.isfile(repo_configfile):
+                    inifile = IniFile(commentPrefix='#', keyValueSeperator='=', disabled_values=False)
+                    if not inifile.open(repo_configfile):
+                        print('Failed to open %s' % repo_configfile)
+                        ret = False
+                    else:
+
+                        result = True
+                        for section in inifile.sections:
+                            reponame = inifile.get(section, 'name', None)
+                            repopath = inifile.get(section, 'path', None)
+                            repotype = inifile.get(section, 'type', 'git')
+                            repoalias = inifile.get(section, 'alias', None)
+                            repodesc = inifile.get(section, 'description', None)
+
+                            if reponame is None:
+                                continue
+                            elif reponame == '(default)':
+                                reponame = ''
+
+                            if repoalias is not None:
+                                pass
+                            elif repopath is None or repotype is None:
+                                continue
+
+                            if not os.path.isabs(repopath):
+                                repopath = os.path.join(repo_base_path, repopath)
+
+                            if repoalias:
+                                if reponame in repos_to_remove:
+                                    # repo already exists, so check if we need to modify it
+                                    current_props = repos_to_remove[reponame]
+                                    del repos_to_remove[reponame]
+                                    if repoalias != current_props['alias']:
+                                        changes = {'alias':repoalias}
+                                        result = self._trac.modify_repository(reponame, changes)
+                                    else:
+                                        result = True
+                                else:
+                                    result = self._trac.add_repository_alias(reponame, repoalias)
+                                    if not result:
+                                        print('Failed to modify repository %s, error %s' % (reponame, self._trac.last_error))
+                            else:
+                                if repotype not in supported_repository_types:
+                                    if repotype == 'svn':
+                                        self._enable_svn()
+                                        supported_repository_types = self._trac.supported_repository_types
+                                    elif repotype == 'git':
+                                        self._enable_git()
+                                        supported_repository_types = self._trac.supported_repository_types
+                                    else:
+                                        print('Repository type %s of repository %s is not supported (only %s is supported).' %
+                                            (repotype, reponame, ','.join(supported_repository_types)))
+                                changes = {}
+                                if reponame in repos_to_remove:
+                                    # repo already exists, so check if we need to modify it
+                                    current_props = repos_to_remove[reponame]
+                                    del repos_to_remove[reponame]
+
+                                    if 'description' in current_props:
+                                        if current_props['description'] != repodesc:
+                                            changes['description'] = repodesc
+                                    if 'type' in current_props:
+                                        if current_props['type'] != repotype:
+                                            changes['type'] = repotype
+                                    if 'dir' in current_props:
+                                        if current_props['dir'] != repopath:
+                                            changes['dir'] = repopath
+                                    result = True
+                                else:
+                                    result = self._trac.add_repository(reponame, repopath, repotype)
+                                    if result:
+                                        if repodesc is not None and len(repodesc) != 0:
+                                            changes['description'] = repodesc
+                                if result:
+                                    if len(changes) != 0:
+                                        print('modify repository %s changes=%s' % (reponame, str(changes)))
+                                        result = self._trac.modify_repository(reponame, changes)
+                                        if not result:
+                                            print('Failed to modify repository %s, error %s' % (reponame, self._trac.last_error))
+                                else:
+                                    print('Failed to add repository %s, error %s' % (reponame, self._trac.last_error))
+                            if not result:
+                                break
+
+                        inifile.close()
+                elif os.path.isdir(repo_configfile):
 
                     result = True
-                    for section in inifile.sections:
-                        reponame = inifile.get(section, 'name', None)
-                        repopath = inifile.get(section, 'path', None)
-                        repotype = inifile.get(section, 'type', 'git')
-                        repoalias = inifile.get(section, 'alias', None)
-                        repodesc = inifile.get(section, 'description', None)
+                    cfgdir = repo_configfile
+                    for f in os.listdir(cfgdir):
+                        full = os.path.join(cfgdir, f)
 
-                        if reponame is None:
-                            continue
-                        elif reponame == '(default)':
-                            reponame = ''
+                        if f.endswith('.git') and os.path.isdir(full):
 
-                        if repoalias is not None:
-                            pass
-                        elif repopath is None or repotype is None:
-                            continue
+                            reponame = f[:-4]
+                            repopath = full
+                            repotype = 'git'
 
-                        if not os.path.isabs(repopath):
-                            repopath = os.path.join(repo_base_path, repopath)
-
-                        if repoalias:
-                            if reponame in repos_to_remove:
-                                # repo already exists, so check if we need to modify it
-                                current_props = repos_to_remove[reponame]
-                                del repos_to_remove[reponame]
-                                if repoalias != current_props['alias']:
-                                    changes = {'alias':repoalias}
-                                    result = self._trac.modify_repository(reponame, changes)
-                                else:
-                                    result = True
-                            else:
-                                result = self._trac.add_repository_alias(reponame, repoalias)
-                                if not result:
-                                    print('Failed to modify repository %s, error %s' % (reponame, self._trac.last_error))
-                        else:
-                            if repotype not in supported_repository_types:
-                                if repotype == 'svn':
-                                    self._enable_svn()
-                                    supported_repository_types = self._trac.supported_repository_types
-                                elif repotype == 'git':
-                                    self._enable_git()
-                                    supported_repository_types = self._trac.supported_repository_types
-                                else:
-                                    print('Repository type %s of repository %s is not supported (only %s is supported).' %
-                                        (repotype, reponame, ','.join(supported_repository_types)))
                             changes = {}
                             if reponame in repos_to_remove:
                                 # repo already exists, so check if we need to modify it
                                 current_props = repos_to_remove[reponame]
                                 del repos_to_remove[reponame]
-
-                                if 'description' in current_props:
-                                    if current_props['description'] != repodesc:
-                                        changes['description'] = repodesc
-                                if 'type' in current_props:
-                                    if current_props['type'] != repotype:
-                                        changes['type'] = repotype
-                                if 'dir' in current_props:
-                                    if current_props['dir'] != repopath:
-                                        changes['dir'] = repopath
-                                result = True
                             else:
                                 result = self._trac.add_repository(reponame, repopath, repotype)
-                                if result:
-                                    if repodesc is not None and len(repodesc) != 0:
-                                        changes['description'] = repodesc
-                            if result:
-                                if len(changes) != 0:
-                                    print('modify repository %s changes=%s' % (reponame, str(changes)))
-                                    result = self._trac.modify_repository(reponame, changes)
-                                    if not result:
-                                        print('Failed to modify repository %s, error %s' % (reponame, self._trac.last_error))
-                            else:
-                                print('Failed to add repository %s, error %s' % (reponame, self._trac.last_error))
-                        if not result:
+
+
+                if result:
+                    for reponame in repos_to_remove.iterkeys():
+                        print('remove repository %s' % (reponame))
+                        if not self._trac.remove_repository(reponame):
+                            print('Failed to remove repository %s, error %s' % (reponame, self._trac.last_error))
+                            result = False
                             break
-
-                    inifile.close()
-            elif os.path.isdir(repo_configfile):
-
-                result = True
-                cfgdir = repo_configfile
-                for f in os.listdir(cfgdir):
-                    full = os.path.join(cfgdir, f)
-
-                    if f.endswith('.git') and os.path.isdir(full):
-
-                        reponame = f[:-4]
-                        repopath = full
-                        repotype = 'git'
-
-                        changes = {}
-                        if reponame in repos_to_remove:
-                            # repo already exists, so check if we need to modify it
-                            current_props = repos_to_remove[reponame]
-                            del repos_to_remove[reponame]
-                        else:
-                            result = self._trac.add_repository(reponame, repopath, repotype)
-
-
-            if result:
-                for reponame in repos_to_remove.iterkeys():
-                    print('remove repository %s' % (reponame))
-                    if not self._trac.remove_repository(reponame):
-                        print('Failed to remove repository %s, error %s' % (reponame, self._trac.last_error))
-                        result = False
-                        break
-            ret = True if result else False
+                ret = EXIT_CODE_SUCCESS if result else EXIT_CODE_FAILURE
+            except Exception as ex:
+                print('%s' % ex, file=sys.stderr)
         elif args.action_sync_repos is not None or args.action_resync_repos is not None or args.action_sync_all_repos:
-            resync = True if args.action_resync_repos is not None else False
-            if args.action_sync_all_repos:
-                action_args = []
-            else:
-                action_args = args.action_resync_repos if resync else args.action_sync_repos
+            try:
+                resync = True if args.action_resync_repos is not None else False
+                if args.action_sync_all_repos:
+                    action_args = []
+                else:
+                    action_args = args.action_resync_repos if resync else args.action_sync_repos
 
-            selected_repos = set()
-            if len(action_args) == 0:
-                # sync all
-                for (reponame, repoprops) in self._trac.repositories:
-                    selected_repos.add(reponame)
-            else:
-                for reponame in action_args:
-                    selected_repos.add(reponame)
-            ret = True
-            for reponame in selected_repos:
-                if not self._trac.sync_repository(reponame, clean=True if resync else False):
-                    print('Failed to %s repository %s, error %s' % ('re-sync' if resync else 'sync', reponame, self._trac.last_error))
-                    ret = False
+                selected_repos = set()
+                if len(action_args) == 0:
+                    # sync all
+                    for (reponame, repoprops) in self._trac.repositories:
+                        selected_repos.add(reponame)
+                else:
+                    for reponame in action_args:
+                        selected_repos.add(reponame)
+                ret = EXIT_CODE_SUCCESS
+                for reponame in selected_repos:
+                    if not self._trac.sync_repository(reponame, clean=True if resync else False):
+                        print('Failed to %s repository %s, error %s' % ('re-sync' if resync else 'sync', reponame, self._trac.last_error))
+                        ret = EXIT_CODE_FAILURE
+            except Exception as ex:
+                print('%s' % ex, file=sys.stderr)
         else:
             print('No action specified.')
-            ret = False
+            ret = EXIT_CODE_FAILURE
 
-        return 0 if ret else 1
+        return ret
 
 if __name__ == "__main__":
     app =  trac_manage()
