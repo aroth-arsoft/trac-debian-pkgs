@@ -43,3 +43,6 @@
 [submodule "repo/arsoft-trac-commitupdater"]
 	path = repo/arsoft-trac-commitupdater
 	url = ../arsoft-trac-commitupdater.git
+[submodule "repo/trac-logviewer"]
+	path = repo/trac-logviewer
+	url = ../trac-logviewer.git
