@@ -31,6 +31,7 @@ function upgrade() {
         trac-ini "$trac_env/conf/trac.ini" "components" "iniadmin.*" "enabled"
         trac-ini "$trac_env/conf/trac.ini" "components" "mastertickets.*" "enabled"
         trac-ini "$trac_env/conf/trac.ini" "components" "tracrpc.*" "enabled"
+        trac-ini "$trac_env/conf/trac.ini" "components" "logviewer.*" "enabled"
         trac-ini "$trac_env/conf/trac.ini" "components" "arsoft.trac.plugins.commitupdater.commit_updater.*" "enabled"
 
         trac-ini "$trac_env/conf/trac.ini" "components" "tracopt.versioncontrol.git.git_fs.*" "enabled"

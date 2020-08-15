@@ -167,6 +167,15 @@ package_list = {
         'alias': 'lxml',
         'site': 'pypi',
     },
+    'LogViewerPlugin': {
+        'package_name': 'LogViewer',
+        'alias': 'logviewer',
+        'site': 'trac-hacks',
+        'repo': 'svn',
+        'repo_subdir': 'trunk',
+        'pkgrepo': 'git',
+        'pkgrepo_dir': 'trac-logviewer',
+    },
 
 
 }
