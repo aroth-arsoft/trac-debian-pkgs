@@ -8,13 +8,13 @@ ENV container=docker LANG=C.UTF-8
 ENV TRAC_VERSION="1.4"
 ENV GUNICORN_VERSION="19.10.0"
 
-RUN apk add --update-cache libxslt graphviz git && \
+RUN apk add --update-cache libxslt graphviz git ttf-opensans && \
     pip install futures "gunicorn[gthread]>=${GUNICORN_VERSION}" "Trac>=${TRAC_VERSION}" PyMySQL pytz Babel && \
     rm -rf /root/.cache/ && \
     adduser -S -s /bin/sh trac
 
 ADD *.whl /tmp/
-RUN pip install /tmp/*.whl
+RUN pip install /tmp/*.whl && rm -rf /tmp/*.whl
 
 ADD trac-* /bin/
 ADD start_trac.sh trac_wsgi.py /home/trac/

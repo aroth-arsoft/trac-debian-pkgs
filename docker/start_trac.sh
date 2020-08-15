@@ -36,6 +36,9 @@ function upgrade() {
 
         trac-ini "$trac_env/conf/trac.ini" "components" "tracopt.versioncontrol.git.git_fs.*" "enabled"
 
+        # fix missing font in workflow diagrams
+        trac-ini "$trac_env/conf/trac.ini" "workflow-admin" "diagram_font" "Open Sans Regular"
+
     fi
 
     if [ -f "$trac_instance_config" ]; then
