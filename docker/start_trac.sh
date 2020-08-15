@@ -2,6 +2,7 @@
 script_file=`readlink -f "$0"`
 script_dir=`dirname "$script_file"`
 trac_env="$script_dir/env"
+trac_instance_config="$script_dir/instance"
 trac_user='trac'
 gunicorn_num_workers=${GUNICORN_NUM_WORKERS:-2}
 gunicorn_num_threads=${GUNICORN_NUM_THREADS:-2}
@@ -36,20 +37,8 @@ function upgrade() {
 
     fi
 
-    if [ $upgrade_ok -eq 0 ]; then
-        su -s /bin/sh -c "trac-admin \"$trac_env\" upgrade --no-backup" "$trac_user" || upgrade_ok=1
-        su -s /bin/sh -c "trac-admin \"$trac_env\" wiki upgrade" "$trac_user" || upgrade_ok=1
-    fi
-
-    if [ $upgrade_ok -eq 0 ]; then
-        test -d "$trac_env/tmp/deploy" && rm -rf "$trac_env/tmp/deploy"
-        su -s /bin/sh -c "trac-admin \"$trac_env\" deploy \"$trac_env/tmp/deploy\"" "$trac_user" || upgrade_ok=1
-        if [ -d "$trac_env/tmp/deploy/htdocs" ]; then
-            cp -a "$trac_env/tmp/deploy/htdocs"/* "$trac_env/htdocs"
-        else
-            echo "Deploy of $trac_env failed" 1>&2
-        fi
-        test -d "$trac_env/tmp/deploy" && rm -rf "$trac_env/tmp/deploy"
+    if [ -f "$trac_instance_config" ]; then
+        trac-ini "$trac_env/conf/trac.ini" "$trac_instance_config"
     fi
 
     # Apply the latest configuration from Docker
@@ -65,6 +54,22 @@ function upgrade() {
     trac-ini "$trac_env/conf/trac.ini" "project" "descr" "${TRAC_PROJECT_DESCRIPTION}"
     trac-ini "$trac_env/conf/trac.ini" "project" "url" "${TRAC_BASE_URL}"
     trac-ini "$trac_env/conf/trac.ini" "project" "admin" "${TRAC_PROJECT_ADMIN}"
+
+    if [ $upgrade_ok -eq 0 ]; then
+        su -s /bin/sh -c "trac-admin \"$trac_env\" upgrade --no-backup" "$trac_user" || upgrade_ok=1
+        su -s /bin/sh -c "trac-admin \"$trac_env\" wiki upgrade" "$trac_user" || upgrade_ok=1
+    fi
+
+    if [ $upgrade_ok -eq 0 ]; then
+        test -d "$trac_env/tmp/deploy" && rm -rf "$trac_env/tmp/deploy"
+        su -s /bin/sh -c "trac-admin \"$trac_env\" deploy \"$trac_env/tmp/deploy\"" "$trac_user" || upgrade_ok=1
+        if [ -d "$trac_env/tmp/deploy/htdocs" ]; then
+            cp -a "$trac_env/tmp/deploy/htdocs"/* "$trac_env/htdocs"
+        else
+            echo "Deploy of $trac_env failed" 1>&2
+        fi
+        test -d "$trac_env/tmp/deploy" && rm -rf "$trac_env/tmp/deploy"
+    fi
 
     if [ $upgrade_ok -eq 0 ]; then
         echo "Upgrade of $trac_env complete"
@@ -130,10 +135,12 @@ if [ $clear_env -ne 0 ]; then
 fi
 
 if [ ! -f "$trac_env/VERSION" ]; then
+    echo "Initialize environment $trac_env"
     initenv || startup_failure
 fi
 
 chown "$trac_user:nogroup" -R "$trac_env"
+echo "Upgrade environment $trac_env"
 upgrade || startup_failure
 
 manage_repositories || startup_failure

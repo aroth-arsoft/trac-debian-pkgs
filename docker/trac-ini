@@ -2,25 +2,64 @@
 # -*- coding: utf-8 -*-
 # kate: space-indent on; indent-width 4; mixedindent off; indent-mode python;
 
+from __future__ import print_function
 import sys
 import ConfigParser
 
+filename = None
+input_file = None
+section = None
 
+if len(sys.argv) == 5:
+    filename = sys.argv[1]
+    section = sys.argv[2]
+    key = sys.argv[3]
+    value = sys.argv[4]
+elif len(sys.argv) == 3:
+    filename = sys.argv[1]
+    input_file = sys.argv[2]
+else:
+    print("Invalid arguments.", file=sys.stderr)
+    sys.exit(1)
 
-filename = sys.argv[1]
-section = sys.argv[2]
-key = sys.argv[3]
-value = sys.argv[4]
+if filename is None:
+    print("No filename specified.", file=sys.stderr)
+    sys.exit(2)
+else:
+    f = open(filename, 'r')
+    ini = ConfigParser.ConfigParser()
+    ini.readfp(f)
+    f.close()
 
-f = open(filename, 'r')
-ini = ConfigParser.ConfigParser()
-ini.readfp(f)
-f.close()
+if section is not None:
+    if not ini.has_section(section):
+        ini.add_section(section)
+    ini.set(section, key, value)
 
-if not ini.has_section(section):
-    ini.add_section(section)
-ini.set(section, key, value)
-f = open(filename, 'w')
-ini.write(f)
-f.close()
+if input_file is not None:
+    f = open(input_file, 'r')
+    for line in f.readlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line[0] == '#':
+            continue
+        if line.startswith('set:'):
+            line = line[4:]
+            key, value = line.split('=', 1)
+            if '/' in key:
+                section, key = key.split('/', 1)
+            else:
+                section = None
+            if not ini.has_section(section):
+                ini.add_section(section)
+            ini.set(section, key, value)
 
+    f.close()
+
+if filename is not None:
+    f = open(filename, 'w')
+    ini.write(f)
+    f.close()
+
+sys.exit(0)
