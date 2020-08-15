@@ -1028,7 +1028,7 @@ pip wheel %s --wheel-dir /src $package
                 shutil.copy2(src, dst)
         return True
 
-    def _build_docker(self, release='py2', image_name='arsoft-trac'):
+    def _build_docker(self, release='py2', image_name='arsoft-trac', repo='rothan'):
         alpine_tag = '2-alpine' if release == 'py2' else '3-alpine'
         tmpdir = tempfile.TemporaryDirectory()
 
@@ -1045,7 +1045,12 @@ pip wheel %s --wheel-dir /src $package
         p = subprocess.run(['docker', 'build', '--tag', '%s:%s' % (image_name, release), '--build-arg', 'RELEASE=%s' % alpine_tag, tmpdir.name])
         p = subprocess.run(['docker', 'tag', '%s:%s' % (image_name, release), '%s:latest' % (image_name)])
 
-        pass
+        if repo is not None:
+            p = subprocess.run(['docker', 'tag', '%s:%s' % (image_name, release), '%s/%s:%s' % (repo, image_name, release)])
+            p = subprocess.run(['docker', 'tag', '%s:%s' % (image_name, release), '%s/%s:latest' % (repo, image_name)])
+
+            p = subprocess.run(['docker', 'push', '%s/%s:%s' % (repo, image_name, release)])
+            p = subprocess.run(['docker', 'push', '%s/%s:latest' % (repo, image_name)])
 
     def main(self):
         #=============================================================================================
