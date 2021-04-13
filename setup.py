@@ -993,6 +993,12 @@ class trac_package_update_app(object):
         alpine_tag = '2-alpine' if release == 'py2' else '3-alpine'
 
         p = subprocess.run(['python2', 'setup.py', 'sdist', '-d', tmpdir.name], cwd=pkgrepo_dir)
+        if p is None:
+            print('Failed to create source package for %s to %s' % (pkgrepo_dir, tmpdir.name))
+            return False
+        if p.returncode != 0:
+            print('Failed to create source package for %s to %s' % (pkgrepo_dir, tmpdir.name))
+            return False
 
         with open(dockerfile, 'w') as f:
             f.write("""
@@ -1046,6 +1052,8 @@ pip wheel %s --wheel-dir /src $package
             dst = os.path.join(tmpdir.name, f)
             shutil.copy2(src, dst)
 
+        if not os.path.isdir(self._wheel_dir):
+            os.makedirs(self._wheel_dir)
         for f in os.listdir(self._wheel_dir):
             src = os.path.join(self._wheel_dir, f)
             dst = os.path.join(tmpdir.name, f)
@@ -1058,8 +1066,9 @@ pip wheel %s --wheel-dir /src $package
             p = subprocess.run(['docker', 'tag', '%s:%s' % (image_name, release), '%s/%s:%s' % (repo, image_name, release)])
             p = subprocess.run(['docker', 'tag', '%s:%s' % (image_name, release), '%s/%s:latest' % (repo, image_name)])
 
-            p = subprocess.run(['docker', 'push', '%s/%s:%s' % (repo, image_name, release)])
-            p = subprocess.run(['docker', 'push', '%s/%s:latest' % (repo, image_name)])
+            if self._publish:
+                p = subprocess.run(['docker', 'push', '%s/%s:%s' % (repo, image_name, release)])
+                p = subprocess.run(['docker', 'push', '%s/%s:latest' % (repo, image_name)])
 
     def main(self):
         #=============================================================================================
