@@ -3,8 +3,13 @@
 
 import sys
 import os
+import logging
 
 sys.stdout = sys.stderr
+
+#logger = logging.getLogger(__name__)
+gunicorn_logger = logging.getLogger('gunicorn.error')
+gunicorn_debug = int(os.getenv('GUNICORN_DEBUG', '0'))
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
 trac_env_dir = os.path.join(script_dir, 'env')
@@ -17,14 +22,21 @@ TRAC_BASE_PATH = os.getenv('TRAC_BASE_PATH', '/')
 
 import trac.web.main
 def gunicorn_dispatch_request(environ, start_response):
-    path = environ['SCRIPT_NAME'] + environ.get('PATH_INFO', '')
-    #environ['PATH_INFO'] = path[len(TRAC_BASE_PATH):]
-    environ['PATH_INFO'] = path
+    if gunicorn_debug:
+        gunicorn_logger.info('gunicorn_dispatch_request %s' % environ)
+    # get the original path or the request; e.g. /trac/login
+    path = environ['PATH_INFO']
+    # remove the base_path prefix; e.g. /trac and keep the rest /login
+    environ['PATH_INFO'] = path[len(TRAC_BASE_PATH):]
+    # put the fixed base path as SCRIPT_NAME so trac can automatically determine
+    # the prefix and correctly generate and handle URLs
     environ['SCRIPT_NAME'] = TRAC_BASE_PATH
-    #print(environ['SCRIPT_NAME'], environ['PATH_INFO'])
+
+    # handle username with REALM notation; e.g. foo@BAR
     if 'HTTP_REMOTE_USER' in environ:
         environ['REMOTE_USER'] = environ['HTTP_REMOTE_USER']
     if 'REMOTE_USER' in environ and '@' in environ['REMOTE_USER']:
+        # drop the REALM part from the username
         (environ['REMOTE_USER'], realm) = environ['REMOTE_USER'].split('@', 1)
     return trac.web.main.dispatch_request(environ, start_response)
 
