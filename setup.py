@@ -1148,13 +1148,13 @@ pip wheel %s --wheel-dir /src $package
         elif args.update:
             if self._download_pkgs():
                 if self._update_package_repo():
-                    if self._publish:
-                        if self._ppa_publish():
+                    if self._docker:
+                        if self._build_docker():
                             ret = 0
                         else:
                             ret = 5
-                    elif self._docker:
-                        if self._build_docker():
+                    elif self._publish:
+                        if self._ppa_publish():
                             ret = 0
                         else:
                             ret = 5
