@@ -394,8 +394,7 @@ def copy_and_overwrite(from_path, to_path):
         copytree(from_path, to_path, copy_function=_copy_and_overwrite, ignore_existing_dst=True)
         ret = True
     except shutil.Error as e:
-        #print('Copy failed: %s' % e, file=sys.stderr)
-        print(e)
+        print('Copy failed: %s' % e, file=sys.stderr)
 
     remove_obsolete_files(from_path, to_path, ignore=shutil.ignore_patterns('debian', '.pc', '.git*'))
     return ret
@@ -992,13 +991,23 @@ class trac_package_update_app(object):
         build_sh = os.path.join(tmpdir.name, 'build.sh')
         alpine_tag = '2-alpine' if release == 'py2' else '3-alpine'
 
-        p = subprocess.run(['python2', 'setup.py', 'sdist', '-d', tmpdir.name], cwd=pkgrepo_dir)
-        if p is None:
-            print('Failed to create source package for %s to %s' % (pkgrepo_dir, tmpdir.name))
-            return False
-        if p.returncode != 0:
-            print('Failed to create source package for %s to %s' % (pkgrepo_dir, tmpdir.name))
-            return False
+        if pkgrepo_dir:
+            #p = subprocess.run(['python2', 'setup.py', 'sdist', '-d', tmpdir.name], cwd=pkgrepo_dir)
+            p = subprocess.run(['docker', 'run', '--rm',
+                                '-v', pkgrepo_dir + ':/src',
+                                '-v', tmpdir.name + ':/dest',
+                                '--workdir', '/src',
+                                'python:%s' % alpine_tag,
+                                'python2', 'setup.py', 'sdist', '-d', '/dest'])
+
+            if p is None:
+                print('Failed to create source package for %s to %s' % (pkgrepo_dir, tmpdir.name))
+                return False
+            if p.returncode != 0:
+                print('Failed to create source package for %s to %s' % (pkgrepo_dir, tmpdir.name))
+                return False
+        else:
+            pass
 
         with open(dockerfile, 'w') as f:
             f.write("""
