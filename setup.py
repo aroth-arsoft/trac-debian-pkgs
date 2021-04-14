@@ -708,6 +708,8 @@ class trac_package_update_app(object):
             if repo_ok:
                 print('Repository %s ok' % repo_dir)
 
+                rev = None
+                url = None
                 if no_download:
                     download_ok = True
                 else:
@@ -717,8 +719,6 @@ class trac_package_update_app(object):
                         e = download_subdir.split('/')
                         download_subdir = e[-1]
                     pkg_download_tag_file = os.path.join(self._download_dir, '.' + name.lower() + '.tag')
-                    rev = None
-                    url = None
                     archive = None
                     if os.path.isfile(pkg_download_tag_file):
                         f = IniFile(pkg_download_tag_file)

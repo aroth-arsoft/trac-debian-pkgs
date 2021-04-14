@@ -13,7 +13,7 @@ trac_env_dir = os.path.join(script_dir, 'env')
 os.environ['TRAC_ENV'] = trac_env_dir
 os.environ['PYTHON_EGG_CACHE'] = os.path.join(script_dir, '.eggs')
 
-TRAC_BASE_PATH = '/'
+TRAC_BASE_PATH = os.getenv('TRAC_BASE_PATH', '/')
 
 import trac.web.main
 def gunicorn_dispatch_request(environ, start_response):

@@ -13,6 +13,20 @@ clear_env="${TRAC_CLEAR_ENV:-0}"
 function upgrade() {
     local upgrade_ok=0
 
+    # Apply the latest configuration from Docker
+    trac-ini "$trac_env/conf/trac.ini" "trac" "base_url" "${TRAC_BASE_URL}"
+    trac-ini "$trac_env/conf/trac.ini" "trac" "database" "${TRAC_DATABASE}"
+    # enable Nginx sendfile support
+    trac-ini "$trac_env/conf/trac.ini" "trac" "xsendfile_header" "X-Accel-Redirect"
+    trac-ini "$trac_env/conf/trac.ini" "trac" "repository_sync_per_request" "disabled"
+    trac-ini "$trac_env/conf/trac.ini" "versioncontrol" "default_repository_type" "git"
+    trac-ini "$trac_env/conf/trac.ini" "git" "cached_repository" "enabled"
+
+    trac-ini "$trac_env/conf/trac.ini" "project" "name" "${TRAC_PROJECT_NAME}"
+    trac-ini "$trac_env/conf/trac.ini" "project" "descr" "${TRAC_PROJECT_DESCRIPTION}"
+    trac-ini "$trac_env/conf/trac.ini" "project" "url" "${TRAC_BASE_URL}"
+    trac-ini "$trac_env/conf/trac.ini" "project" "admin" "${TRAC_PROJECT_ADMIN}"
+
     # Only enable addons once
     if [ ! -f "$trac_env/addons_enabled" ]; then
         echo "done" > "$trac_env/addons_enabled"
@@ -44,20 +58,6 @@ function upgrade() {
     if [ -f "$trac_instance_config" ]; then
         trac-ini "$trac_env/conf/trac.ini" "$trac_instance_config"
     fi
-
-    # Apply the latest configuration from Docker
-    trac-ini "$trac_env/conf/trac.ini" "trac" "base_url" "${TRAC_BASE_URL}"
-    trac-ini "$trac_env/conf/trac.ini" "trac" "database" "${TRAC_DATABASE}"
-    # enable Nginx sendfile support
-    trac-ini "$trac_env/conf/trac.ini" "trac" "xsendfile_header" "X-Accel-Redirect"
-    trac-ini "$trac_env/conf/trac.ini" "trac" "repository_sync_per_request" "disabled"
-    trac-ini "$trac_env/conf/trac.ini" "versioncontrol" "default_repository_type" "git"
-    trac-ini "$trac_env/conf/trac.ini" "git" "cached_repository" "enabled"
-
-    trac-ini "$trac_env/conf/trac.ini" "project" "name" "${TRAC_PROJECT_NAME}"
-    trac-ini "$trac_env/conf/trac.ini" "project" "descr" "${TRAC_PROJECT_DESCRIPTION}"
-    trac-ini "$trac_env/conf/trac.ini" "project" "url" "${TRAC_BASE_URL}"
-    trac-ini "$trac_env/conf/trac.ini" "project" "admin" "${TRAC_PROJECT_ADMIN}"
 
     if [ $upgrade_ok -eq 0 ]; then
         su -s /bin/sh -c "trac-admin \"$trac_env\" upgrade --no-backup" "$trac_user" || upgrade_ok=1
@@ -95,7 +95,7 @@ function initenv() {
         mkdir "$trac_env"
     fi
     if [ ! -d "$trac_env" ]; then
-        echo "Failed to create directory $trac_env" 1>&2mkdir "$trac_env"
+        echo "Failed to create directory $trac_env" 1>&2
         init_ok=1
     else
         chown "$trac_user:nogroup" -R "$trac_env" || init_ok=1
