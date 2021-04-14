@@ -1,0 +1,20 @@
+version: "2.3"
+services:
+    trac:
+        container_name: trac_test
+        environment:
+            - TRAC_BASE_PATH=/trac
+            #- TRAC_BASE_URL=/trac
+            #- GUNICORN_DEBUG=1
+        image: rothan/arsoft-trac:py2
+        restart: "no"
+        ports:
+            - "8067:8000"
+        volumes:
+            - ./tmp/env:/home/trac/env
+            - ./tmp/git:/git
+        logging:
+            driver: "json-file"
+            options:
+                max-file: "5"
+                max-size: "10m"
