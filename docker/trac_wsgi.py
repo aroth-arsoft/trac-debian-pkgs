@@ -25,12 +25,13 @@ def gunicorn_dispatch_request(environ, start_response):
     if gunicorn_debug:
         gunicorn_logger.info('gunicorn_dispatch_request %s' % environ)
     # get the original path or the request; e.g. /trac/login
-    path = environ['PATH_INFO']
+    path = environ.get('PATH_INFO', '')
+    base_path = environ.get('TRAC_BASE_PATH', TRAC_BASE_PATH)
     # remove the base_path prefix; e.g. /trac and keep the rest /login
-    environ['PATH_INFO'] = path[len(TRAC_BASE_PATH):]
+    environ['PATH_INFO'] = path[len(base_path):] if (len(path) > len(base_path)) else path
     # put the fixed base path as SCRIPT_NAME so trac can automatically determine
     # the prefix and correctly generate and handle URLs
-    environ['SCRIPT_NAME'] = TRAC_BASE_PATH
+    environ['SCRIPT_NAME'] = base_path
 
     # handle username with REALM notation; e.g. foo@BAR
     if 'HTTP_REMOTE_USER' in environ:
