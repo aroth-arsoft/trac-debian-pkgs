@@ -4,11 +4,13 @@
 
 from __future__ import print_function
 import sys
+import os
 import ConfigParser
 
 filename = None
 input_file = None
 section = None
+verbose = int(os.getenv('GUNICORN_DEBUG', '0')) != 0
 
 if len(sys.argv) == 5:
     filename = sys.argv[1]
@@ -53,7 +55,35 @@ if input_file is not None:
                 section = None
             if not ini.has_section(section):
                 ini.add_section(section)
+            if verbose:
+                print('set [%s]/%s=%s' % (section, key, value))
             ini.set(section, key, value)
+        elif line.startswith('delete:'):
+            line = line[7:]
+            if '/' in line:
+                section, key = line.split('/', 1)
+            else:
+                section = line
+                key = None
+            if key:
+                if verbose:
+                    print('delete [%s]/%s' % (section, key))
+                if ini.has_section(section):
+                    ini.remove_option(section, key)
+            else:
+                if verbose:
+                    print('delete [%s]' % (section))
+                if ini.has_section(section):
+                    ini.remove_section(section)
+        elif line.startswith('clear:'):
+            section = line[6:]
+            if verbose:
+                print('clear [%s]' % (section))
+            if ini.has_section(section):
+                ini.remove_section(section)
+            ini.add_section(section)
+        else:
+            print('Unknown command line: %s' % line)
 
     f.close()
 

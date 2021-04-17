@@ -55,8 +55,14 @@ function upgrade() {
 
     fi
 
+    # always disable old navadd plugin
+    trac-ini "$trac_env/conf/trac.ini" "components" "navadd.navadd.*" "disabled"
+
     if [ -f "$trac_instance_config" ]; then
+        echo "Apply config changes from $trac_instance_config"
         trac-ini "$trac_env/conf/trac.ini" "$trac_instance_config"
+    else
+        echo "Instance config file $trac_instance_config unavailable"
     fi
 
     if [ $upgrade_ok -eq 0 ]; then

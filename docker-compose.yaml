@@ -12,6 +12,7 @@ services:
             - "8067:8000"
         volumes:
             - ./tmp/env:/home/trac/env
+            - ./tmp/instance_trac_test:/home/trac/instance:ro
             - ./tmp/git:/git
         logging:
             driver: "json-file"
