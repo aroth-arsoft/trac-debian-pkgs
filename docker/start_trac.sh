@@ -70,10 +70,21 @@ function upgrade() {
         su -s /bin/sh -c "trac-admin \"$trac_env\" wiki upgrade" "$trac_user" || upgrade_ok=1
     fi
 
+    # Remove multi site-in-site directories created by previous trac-admin deploy runs
+    if [ -d "$trac_env/htdocs/site/site" ]; then
+        echo "Remove directory $trac_env/htdocs/site/site"
+        rm -rf "$trac_env/htdocs/site/site"
+    fi
+
     if [ $upgrade_ok -eq 0 ]; then
         test -d "$trac_env/tmp/deploy" && rm -rf "$trac_env/tmp/deploy"
-        su -s /bin/sh -c "trac-admin \"$trac_env\" deploy \"$trac_env/tmp/deploy\"" "$trac_user" || upgrade_ok=1
-        if [ -d "$trac_env/tmp/deploy/htdocs" ]; then
+        # Create temp deploy directory and create a symlink for site to avoid trac-admin to create
+        # a large number of site directories
+        su -s /bin/sh -c "mkdir -p \"$trac_env/tmp/deploy/htdocs\"; ln -s . \"$trac_env/tmp/deploy/htdocs/site\"; trac-admin \"$trac_env\" deploy \"$trac_env/tmp/deploy\"" "$trac_user" || upgrade_ok=1
+        if [ -f "$trac_env/tmp/deploy/htdocs/common/css/trac.css" ]; then
+            echo "Copy trac static files to $trac_env/htdocs"
+            # remove symlink to site directory to avoid trouble with customizations
+            rm "$trac_env/tmp/deploy/htdocs/site"
             cp -a "$trac_env/tmp/deploy/htdocs"/* "$trac_env/htdocs"
         else
             echo "Deploy of $trac_env failed" 1>&2
