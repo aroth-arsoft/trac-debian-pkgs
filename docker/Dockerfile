@@ -11,7 +11,8 @@ ENV GUNICORN_VERSION="19.10.0"
 RUN apk add --update-cache libxslt graphviz git ttf-opensans && \
     pip install futures "gunicorn[gthread]>=${GUNICORN_VERSION}" "Trac>=${TRAC_VERSION}" PyMySQL pytz Babel && \
     rm -rf /root/.cache/ && \
-    adduser -S -s /bin/sh trac
+    addgroup -S trac && \
+    adduser -S -s /bin/sh trac trac
 
 ADD *.whl /tmp/
 RUN pip install /tmp/*.whl && rm -rf /tmp/*.whl
