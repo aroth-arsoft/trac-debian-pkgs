@@ -1,12 +1,12 @@
 ARG RELEASE=2-alpine
 ARG TRAC_HACKS_REV=17677
+ARG TRAC_VERSION="1.4"
+ARG GUNICORN_VERSION="19.10.0"
 FROM python:$RELEASE
 
 LABEL maintainer="docker@fastprotect.net"
 
 ENV container=docker LANG=C.UTF-8
-ENV TRAC_VERSION="1.4"
-ENV GUNICORN_VERSION="19.10.0"
 
 RUN apk add --update-cache libxslt graphviz git ttf-opensans && \
     pip install futures "gunicorn[gthread]>=${GUNICORN_VERSION}" "Trac>=${TRAC_VERSION}" PyMySQL pytz Babel && \

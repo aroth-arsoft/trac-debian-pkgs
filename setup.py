@@ -20,7 +20,7 @@ package_list = {
     'trac': {
         'package_name': 'Trac',
         'site': 'trac',
-        'version': '1.4.2',
+        'version': '1.4.3',
         'pkgrepo': 'git',
         'pkgrepo_dir': 'trac',
         'debian-revision': 'minor',
@@ -1052,7 +1052,7 @@ pip wheel %s --wheel-dir /src $package
                 shutil.copy2(src, dst)
         return True
 
-    def _build_docker(self, release='py2', image_name='arsoft-trac', repo='rothan'):
+    def _build_docker(self, release='py2', trac_version='1.4', image_name='arsoft-trac', repo='rothan'):
         alpine_tag = '2-alpine' if release == 'py2' else '3-alpine'
         tmpdir = tempfile.TemporaryDirectory()
 
@@ -1068,7 +1068,10 @@ pip wheel %s --wheel-dir /src $package
             dst = os.path.join(tmpdir.name, f)
             shutil.copy2(src, dst)
 
-        p = subprocess.run(['docker', 'build', '--tag', '%s:%s' % (image_name, release), '--build-arg', 'RELEASE=%s' % alpine_tag, tmpdir.name])
+        p = subprocess.run(['docker', 'build', '--tag', '%s:%s' % (image_name, release),
+                            '--build-arg', 'RELEASE=%s' % alpine_tag,
+                            '--build-arg', 'TRAC_VERSION=%s' % trac_version,
+                            tmpdir.name])
         p = subprocess.run(['docker', 'tag', '%s:%s' % (image_name, release), '%s:latest' % (image_name)])
 
         if repo is not None:
@@ -1135,6 +1138,8 @@ pip wheel %s --wheel-dir /src $package
             print('Debian python extension not available. Please install python3-debian.', file=sys.stderr)
             return 2
 
+        trac_version = package_list['trac'].get('version')
+
         if args.list or args.update:
             lsb_release = IniFile('/etc/lsb-release')
             self._distribution = lsb_release.get(None, 'DISTRIB_CODENAME', 'unstable')
@@ -1149,7 +1154,7 @@ pip wheel %s --wheel-dir /src $package
             if self._download_pkgs():
                 if self._update_package_repo():
                     if self._docker:
-                        if self._build_docker():
+                        if self._build_docker(trac_version=trac_version):
                             ret = 0
                         else:
                             ret = 5
@@ -1165,7 +1170,7 @@ pip wheel %s --wheel-dir /src $package
             else:
                 ret = 3
         elif self._docker:
-            if self._build_docker():
+            if self._build_docker(trac_version=trac_version):
                 ret = 0
             else:
                 ret = 5
