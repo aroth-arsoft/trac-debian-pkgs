@@ -96,7 +96,7 @@ def call_git(command, args, input=None):
 def call_trac_admin(args, input=None, use_sudo=False, use_su=False):
     if use_su:
         real_exe = SU_BIN
-        real_args = ['-s', '/bin/sh', '-c', 'trac-admin', '/home/trac/env', args.join(' '), 'trac']
+        real_args = ['-s', '/bin/sh', '-c', 'trac-admin /home/trac/env %s' % ' '.join(args), 'trac']
     elif use_sudo:
         real_exe = SUDO_BIN
         real_args = ['-u', SUDO_USER, TRAC_ADMIN, TRAC_ENV] + args
