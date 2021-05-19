@@ -155,7 +155,7 @@ function manage_repositories() {
         trac-manage --sync-all-repos "$trac_env" || manage_ok=1
         #chown "$trac_user:$trac_group" -R "${TRAC_REPO_DIR}" || manage_ok=1
         local sync_end=$(date +"%s%N")
-        local elappsed=$(((chown_end - chown_start)/1000000))
+        local elappsed=$(((sync_end - sync_start)/1000000))
         set +x
         echo "Sync complete took ${elappsed}ms"
         touch "${trac_env}/.repo_sync_done"
