@@ -4,6 +4,7 @@ script_dir=`dirname "$script_file"`
 trac_env="$script_dir/env"
 trac_instance_config="$script_dir/instance"
 trac_user='trac'
+trac_group='trac'
 gunicorn_num_workers=${GUNICORN_NUM_WORKERS:-2}
 gunicorn_num_threads=${GUNICORN_NUM_THREADS:-2}
 gunicorn_debug=${GUNICORN_DEBUG:-0}
@@ -115,7 +116,7 @@ function initenv() {
         echo "Failed to create directory $trac_env" 1>&2
         init_ok=1
     else
-        chown "$trac_user:nogroup" -R "$trac_env" || init_ok=1
+        chown "$trac_user:$trac_group" -R "$trac_env" || init_ok=1
         su -s /bin/sh -c "trac-admin \"$trac_env\" initenv \"${TRAC_PROJECT_NAME}\" \"${TRAC_DATABASE}\"" "$trac_user" || init_ok=1
     fi
 
@@ -130,13 +131,37 @@ function initenv() {
 
 function manage_repositories() {
     local manage_ok=0
-    set -x
+    local run_sync=0
     echo "Setup repositories from ${TRAC_REPO_DIR}"
     trac-manage --config-repos "${TRAC_REPO_DIR}" "$trac_env" || manage_ok=1
-    echo "Sync all repositories"
-    trac-manage --sync-all-repos "$trac_env" || manage_ok=1
-    chown "$trac_user" -R "${TRAC_REPO_DIR}" || manage_ok=1
-    set +x
+
+    if [ "${TRAC_REPO_FORCE_SYNC}" -ne 0 ]; then
+        run_sync=1
+        echo "Repository sync forced"
+    else
+        if [ ! -f "${trac_env}/.repo_sync_done" ]; then
+            run_sync=1
+            echo "Initial repository sync triggered"
+        fi
+    fi
+    if [ $run_sync -ne 0 ]; then
+        set -x
+        # Sync is very slow because of the following issue in trac 1.4; It's been improved for
+        # trac 1.5.2 or later.
+        # #13243: GitCachedRepository.sync() is slow
+        # https://trac.edgewall.org/ticket/13243
+        echo "Sync all configured repositories"
+        local sync_start=$(date +"%s%N")
+        trac-manage --sync-all-repos "$trac_env" || manage_ok=1
+        #chown "$trac_user:$trac_group" -R "${TRAC_REPO_DIR}" || manage_ok=1
+        local sync_end=$(date +"%s%N")
+        local elappsed=$(((chown_end - chown_start)/1000000))
+        set +x
+        echo "Sync complete took ${elappsed}ms"
+        touch "${trac_env}/.repo_sync_done"
+    else
+        echo "Repository sync skipped"
+    fi
     return $manage_ok
 }
 

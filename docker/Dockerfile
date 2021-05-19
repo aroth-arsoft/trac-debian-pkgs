@@ -26,6 +26,7 @@ ENV TRAC_DATABASE="sqlite:db/trac.db" \
     TRAC_PROJECT_DESCRIPTION="My New Project" \
     TRAC_PROJECT_ADMIN="no-reply@example.com" \
     TRAC_REPO_DIR="/git" \
+    TRAC_REPO_FORCE_SYNC=0 \
     GUNICORN_DEBUG=0
 
 EXPOSE 8000
