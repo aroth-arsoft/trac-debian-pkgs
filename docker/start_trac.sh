@@ -165,6 +165,28 @@ function manage_repositories() {
     return $manage_ok
 }
 
+function trac_env_perms() {
+
+    local run_sync=0
+    if [ ! -f "${trac_env}/.trac_env_perms" ]; then
+        run_sync=1
+        echo "Set trac environment permissions"
+    fi
+    if [ $run_sync -ne 0 ]; then
+        set -x
+        local sync_start=$(date +"%s%N")
+        chown "$trac_user:$trac_group" -R "$trac_env"
+        local sync_end=$(date +"%s%N")
+        local elappsed=$(((sync_end - sync_start)/1000000))
+        set +x
+        echo "Setting trac environment permissions took ${elappsed}ms"
+        touch "${trac_env}/.repo_sync_done"
+    else
+        echo "Setting trac environment permissions skipped"
+    fi
+    return 0
+}
+
 function startup_failure() {
     local RES=$?
     if [ $# -ne 0 ]; then
@@ -185,18 +207,18 @@ if [ ! -f "$trac_env/VERSION" ]; then
     initenv || startup_failure
 fi
 
-chown "$trac_user:nogroup" -R "$trac_env"
+trac_env_perms
 echo "Upgrade environment $trac_env"
 upgrade || startup_failure
 
 manage_repositories || startup_failure
 
 trac_uid=`id -u "$trac_user"`
-echo "Run trac as using $trac_user/$trac_uid"
+echo "Run trac as using $trac_user/$trac_uid:$trac_group"
 
 if [ $gunicorn_debug -ne 0 ]; then
     gunicorn_opts="$gunicorn_opts -R --capture-output --log-level=DEBUG"
 fi
 
-exec gunicorn --workers=${gunicorn_num_workers} --threads=${gunicorn_num_threads} $gunicorn_opts -b 0.0.0.0:8000 --user "$trac_user" --group "nogroup" --chdir "$script_dir" trac_wsgi:application
+exec gunicorn --workers=${gunicorn_num_workers} --threads=${gunicorn_num_threads} $gunicorn_opts -b 0.0.0.0:8000 --user "$trac_user" --group "$trac_group" --chdir "$script_dir" trac_wsgi:application
 exit $?

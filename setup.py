@@ -1056,7 +1056,7 @@ pip wheel %s --wheel-dir /src $package
         alpine_tag = '2-alpine' if release == 'py2' else '3-alpine'
         tmpdir = tempfile.TemporaryDirectory()
 
-        for f in ['Dockerfile', 'start_trac.sh', 'trac-git-post-receive-hook', 'trac-ini', 'trac-manage', 'trac_wsgi.py']:
+        for f in ['Dockerfile', 'start_trac.sh', 'trac-git-post-receive-hook', 'trac-ini', 'trac-manage', 'trac-backup', 'trac_wsgi.py']:
             src = os.path.join(self._docker_dir, f)
             dst = os.path.join(tmpdir.name, f)
             shutil.copy2(src, dst)

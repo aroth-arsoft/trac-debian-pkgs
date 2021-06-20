@@ -8,9 +8,10 @@ LABEL maintainer="docker@fastprotect.net"
 
 ENV container=docker LANG=C.UTF-8
 
-RUN apk add --update-cache libxslt graphviz git ttf-opensans && \
+RUN apk add --no-cache libxslt graphviz git ttf-opensans mariadb-client && \
     pip install futures "gunicorn[gthread]>=${GUNICORN_VERSION}" "Trac>=${TRAC_VERSION}" PyMySQL pytz Babel && \
     rm -rf /root/.cache/ && \
+    ln -s /usr/local/bin/trac-admin /bin/trac-admin && \
     addgroup -S trac && \
     adduser -S -s /bin/sh trac trac
 
